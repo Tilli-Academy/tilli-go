@@ -1,0 +1,119 @@
+/*
+ * DeployFlow design tokens (used by the Dashboard and the top Header).
+ * Status tones keep the existing meaning: Pending = amber, Triggered = blue,
+ * Acknowledged = purple, Completed = green, Blocked = red.
+ * "fg" is text on the tone background (all >= 6:1), "accent" is for icons
+ * (>= 3:1 on the tone background), "chart" is the donut segment colour
+ * (validated for colour-vision separation; always shown with a text label).
+ */
+:root {
+  /* surfaces */
+  --df-canvas: #f5f7fa;
+  --df-surface: #ffffff;
+  --df-surface-subtle: #f8fafc;
+  --df-surface-hover: #f3f6fa;
+  --df-track: #edf0f4;
+  --df-border: #e4e8ee;
+  --df-border-strong: #cfd6e0;
+
+  /* text */
+  --df-text: #0f172a;
+  --df-text-2: #3f4b5e;
+  --df-text-3: #5f6c80;
+
+  /* brand (matches the sidebar's active blue) */
+  --df-brand: #2563eb;
+  --df-brand-strong: #1d4ed8;
+  --df-brand-soft: #eff4ff;
+  --df-brand-border: #d6e2fb;
+  --df-ring: 0 0 0 2px var(--df-surface), 0 0 0 4px var(--df-brand);
+
+  /* status tones */
+  --df-pending-fg: #8a4b06;
+  --df-pending-bg: #fff8eb;
+  --df-pending-border: #f6dfae;
+  --df-pending-accent: #c27803;
+  --df-pending-chart: #eaa31c;
+
+  --df-triggered-fg: #1e4fb8;
+  --df-triggered-bg: #f0f6ff;
+  --df-triggered-border: #c9dcfb;
+  --df-triggered-accent: #2f7de1;
+  --df-triggered-chart: #4d9be6;
+
+  --df-acknowledged-fg: #5b2fa6;
+  --df-acknowledged-bg: #f6f2ff;
+  --df-acknowledged-border: #ddd0fa;
+  --df-acknowledged-accent: #7446cf;
+  --df-acknowledged-chart: #6a3cb8;
+
+  --df-completed-fg: #0b6b43;
+  --df-completed-bg: #eefaf3;
+  --df-completed-border: #bfe8d1;
+  --df-completed-accent: #129459;
+  --df-completed-chart: #159a60;
+
+  --df-blocked-fg: #a8312a;
+  --df-blocked-bg: #fff3f2;
+  --df-blocked-border: #f7cfca;
+  --df-blocked-accent: #d9473d;
+  --df-blocked-chart: #e05a4f;
+
+  --df-neutral-fg: #3f4b5e;
+  --df-neutral-bg: #f3f5f8;
+  --df-neutral-border: #dde2e9;
+  --df-neutral-accent: #5f6c80;
+  --df-neutral-chart: #94a3b8;
+
+  /* shape */
+  --df-radius-sm: 6px;
+  --df-radius-md: 10px;
+  --df-radius-lg: 14px;
+  --df-radius-pill: 999px;
+
+  /* elevation */
+  --df-shadow-xs: 0 1px 2px rgba(15, 23, 42, 0.04);
+  --df-shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.05), 0 1px 3px rgba(15, 23, 42, 0.04);
+  --df-shadow-md: 0 8px 20px -8px rgba(15, 23, 42, 0.16), 0 2px 6px -2px rgba(15, 23, 42, 0.06);
+  --df-shadow-lg: 0 16px 32px -12px rgba(15, 23, 42, 0.22);
+
+  /* spacing (4px grid) */
+  --df-space-1: 4px;
+  --df-space-2: 8px;
+  --df-space-3: 12px;
+  --df-space-4: 16px;
+  --df-space-5: 20px;
+  --df-space-6: 24px;
+  --df-space-8: 32px;
+
+  /* motion */
+  --df-ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --df-ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --df-dur-fast: 140ms;
+  --df-dur: 200ms;
+  --df-dur-slow: 480ms;
+
+  /* type */
+  --df-font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+}
+
+/* A tone class maps one status onto generic --tone-* variables. */
+.df-tone-pending { --tone-fg: var(--df-pending-fg); --tone-bg: var(--df-pending-bg); --tone-border: var(--df-pending-border); --tone-accent: var(--df-pending-accent); --tone-chart: var(--df-pending-chart); }
+.df-tone-triggered { --tone-fg: var(--df-triggered-fg); --tone-bg: var(--df-triggered-bg); --tone-border: var(--df-triggered-border); --tone-accent: var(--df-triggered-accent); --tone-chart: var(--df-triggered-chart); }
+.df-tone-acknowledged { --tone-fg: var(--df-acknowledged-fg); --tone-bg: var(--df-acknowledged-bg); --tone-border: var(--df-acknowledged-border); --tone-accent: var(--df-acknowledged-accent); --tone-chart: var(--df-acknowledged-chart); }
+.df-tone-completed { --tone-fg: var(--df-completed-fg); --tone-bg: var(--df-completed-bg); --tone-border: var(--df-completed-border); --tone-accent: var(--df-completed-accent); --tone-chart: var(--df-completed-chart); }
+.df-tone-blocked { --tone-fg: var(--df-blocked-fg); --tone-bg: var(--df-blocked-bg); --tone-border: var(--df-blocked-border); --tone-accent: var(--df-blocked-accent); --tone-chart: var(--df-blocked-chart); }
+.df-tone-neutral { --tone-fg: var(--df-neutral-fg); --tone-bg: var(--df-neutral-bg); --tone-border: var(--df-neutral-border); --tone-accent: var(--df-neutral-accent); --tone-chart: var(--df-neutral-chart); }
+
+/* Visually hidden, still read by screen readers. */
+.df-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}

@@ -11,16 +11,19 @@ export class HeaderComponent {
     this.page = page;
     this.header = page.locator('header');
     this.pageTitle = page.locator('header h1');
-    this.projectDropdown = page.getByLabel('Select project');
+    // Custom combobox (ProjectSelect) labelled "Select project"
+    this.projectDropdown = page.getByRole('combobox', { name: /select project/i });
     this.userEmail = this.header.locator('a[href*="profile"]');
   }
 
   async selectProject(projectCodeOrName: string) {
-    await this.projectDropdown.selectOption({ label: new RegExp(projectCodeOrName) });
+    await this.projectDropdown.click();
+    await this.page.getByRole('option', { name: new RegExp(projectCodeOrName) }).click();
   }
 
   async getSelectedProjectText(): Promise<string> {
-    return await this.projectDropdown.locator('option:checked').textContent() || '';
+    // Selected value renders as "CODE — Name"
+    return await this.projectDropdown.locator('.dfh-ps-value').textContent() || '';
   }
 
   async getPageTitleText(): Promise<string> {
