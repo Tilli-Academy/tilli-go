@@ -3,11 +3,13 @@ FROM node:20-alpine AS build
 WORKDIR /app
 
 ARG REACT_APP_API_URL=/api
+ARG REACT_APP_MICROSOFT_OAUTH=true
 ENV REACT_APP_API_URL=$REACT_APP_API_URL
+ENV REACT_APP_MICROSOFT_OAUTH=$REACT_APP_MICROSOFT_OAUTH
 ENV PUBLIC_URL=.
 
 COPY frontend/package*.json ./
-RUN npm install
+RUN npm ci --legacy-peer-deps
 
 COPY frontend/ .
 RUN npm run build
