@@ -1,0 +1,275 @@
+@import "../../styles/df-tokens.css";
+
+/*
+ * Status distribution donut (StatusDonut.jsx).
+ * The card is a size container. Narrow (default): ring on top, legend below.
+ * From 560px card width: ring on the left, legend on the right.
+ * Motion: segments draw in once by animating stroke-dasharray only, with
+ * fill-mode "backwards", so a finished animation never holds a value that the
+ * hover styles (opacity, stroke-width) need to change.
+ */
+
+.dfd-donut {
+  container: donut / inline-size;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.dfd-donut-body {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--df-space-5);
+  min-width: 0;
+}
+
+/* ── Ring ───────────────────────────────────────────────────────────────── */
+.dfd-donut-figure {
+  position: relative;
+  flex: none;
+  width: 188px;
+  max-width: 100%;
+  aspect-ratio: 1 / 1;
+}
+
+/* barely-there highlight behind the ring */
+.dfd-donut-figure::before {
+  content: "";
+  position: absolute;
+  inset: -8px;
+  border-radius: 50%;
+  background: radial-gradient(closest-side, rgba(37, 99, 235, 0.06), transparent);
+  pointer-events: none;
+}
+
+.dfd-donut-svg {
+  position: relative;
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  forced-color-adjust: none;
+}
+
+.dfd-donut-track {
+  fill: none;
+  stroke: var(--df-track);
+  stroke-width: 20px;
+  animation: dfd-fade 420ms var(--df-ease-out) backwards;
+  animation-delay: calc(var(--delay, 0ms) + 40ms);
+}
+
+.dfd-donut-seg {
+  fill: none;
+  stroke: var(--tone-chart);
+  stroke-width: 20px;
+  stroke-linecap: butt;
+  transition:
+    opacity 180ms var(--df-ease-out),
+    stroke-width 180ms var(--df-ease-out);
+  animation: dfd-donut-draw 700ms var(--df-ease-out) backwards;
+  animation-delay: calc(var(--delay, 0ms) + 160ms + var(--i, 0) * 90ms);
+}
+
+/* --len (final dash) and --C (circumference) are set inline per element */
+@keyframes dfd-donut-draw {
+  from { stroke-dasharray: 0 var(--C); }
+  to { stroke-dasharray: var(--len) var(--C); }
+}
+
+/* invisible, wider hover target covering the segment's whole slot */
+.dfd-donut-hit {
+  fill: none;
+  stroke: transparent;
+  stroke-width: 34px;
+  pointer-events: stroke;
+}
+
+.dfd-donut-svg[data-active] .dfd-donut-seg {
+  opacity: 0.28;
+}
+
+.dfd-donut-svg[data-active] .dfd-donut-seg.is-active {
+  opacity: 1;
+  stroke-width: 23px;
+}
+
+/* ── Centre readout (HTML overlay, crisper than SVG text) ───────────────── */
+.dfd-donut-center {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+}
+
+.dfd-donut-readout {
+  display: grid;
+  justify-items: center;
+  gap: 2px;
+  max-width: 116px;
+  text-align: center;
+  animation: dfd-donut-swap 160ms var(--df-ease-out) backwards;
+}
+
+@keyframes dfd-donut-swap {
+  from { opacity: 0.4; transform: translate3d(0, 2px, 0); }
+}
+
+.dfd-donut-num {
+  font-size: 30px;
+  line-height: 34px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+  color: var(--df-text);
+}
+
+.dfd-donut-cap {
+  font-size: 11px;
+  line-height: 14px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  color: var(--df-text-3);
+}
+
+/* ── Legend ─────────────────────────────────────────────────────────────── */
+.dfd-donut-legend {
+  display: grid;
+  gap: 2px;
+  /* rows bleed 10px each side so swatches line up with the card title */
+  width: calc(100% + 20px);
+  margin: 0 -10px;
+  padding: 0;
+  list-style: none;
+}
+
+.dfd-donut-row {
+  display: grid;
+  grid-template-columns: 10px minmax(0, 1fr) auto minmax(36px, auto);
+  align-items: center;
+  column-gap: 10px;
+  height: 34px;
+  padding: 0 10px;
+  border-radius: 8px;
+  transition: opacity 180ms var(--df-ease-out);
+}
+
+/* Zero rows recede via the swatch and a lighter count; text keeps AA contrast. */
+.dfd-donut-row[data-zero] .dfd-donut-swatch {
+  opacity: 0.45;
+}
+
+.dfd-donut-row[data-zero] .dfd-donut-count {
+  color: var(--df-text-3);
+  font-weight: 500;
+}
+
+.dfd-donut-row.is-active {
+  opacity: 1;
+  background: var(--df-surface-subtle);
+}
+
+.dfd-donut-swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  background: var(--tone-chart);
+  forced-color-adjust: none;
+  transition: transform 180ms var(--df-ease-out);
+}
+
+.dfd-donut-row.is-active .dfd-donut-swatch {
+  transform: scale(1.2);
+}
+
+.dfd-donut-label {
+  min-width: 0;
+  overflow: hidden;
+  font-size: 13px;
+  line-height: 18px;
+  color: var(--df-text-2);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dfd-donut-row.is-active .dfd-donut-label {
+  color: var(--df-text);
+}
+
+.dfd-donut-count {
+  font-size: 13px;
+  line-height: 18px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  color: var(--df-text);
+}
+
+.dfd-donut-pct {
+  font-size: 12px;
+  line-height: 18px;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  color: var(--df-text-3);
+}
+
+/* ── Empty state ────────────────────────────────────────────────────────── */
+.dfd-donut-empty {
+  display: grid;
+  justify-items: center;
+  gap: 4px;
+  max-width: 280px;
+  text-align: center;
+}
+
+.dfd-donut-empty .dfd-donut-figure {
+  width: 148px;
+  margin-bottom: var(--df-space-3);
+}
+
+.dfd-donut-empty .dfd-donut-center svg {
+  width: 22px;
+  height: 22px;
+  color: var(--df-text-3);
+  opacity: 0.7;
+}
+
+.dfd-donut-empty-title {
+  margin: 0;
+  font-size: 13.5px;
+  line-height: 20px;
+  font-weight: 600;
+  color: var(--df-text-2);
+}
+
+.dfd-donut-empty-hint {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 18px;
+  color: var(--df-text-3);
+}
+
+/* ── Wide card: ring left, legend right ─────────────────────────────────── */
+@container donut (min-width: 560px) {
+  .dfd-donut-body {
+    flex-direction: row;
+    gap: 40px;
+  }
+
+  .dfd-donut-figure {
+    width: 196px;
+  }
+
+  .dfd-donut-legend {
+    flex: 1 1 auto;
+    width: auto;
+    max-width: 320px;
+    margin: 0;
+  }
+}

@@ -1,0 +1,178 @@
+@import "../../styles/df-tokens.css";
+
+/*
+ * Top header (visual layer only).
+ * - Stays 56px tall (h-14) so its bottom border lines up with the sidebar brand row.
+ * - Show/hide rules (md:hidden, hidden sm:flex, hidden sm:block) stay in Tailwind
+ *   utilities, so nothing here sets `display` on those elements.
+ * - The header is a size container: when it gets narrow (tablet widths, or the
+ *   sidebar is expanded) the user chip drops to avatar-only instead of cutting the email short.
+ */
+.dfh {
+  container: dfh / inline-size;
+  position: relative;
+  z-index: 1; /* keeps the hairline shadow above the page content */
+  gap: var(--df-space-3);
+  background: var(--df-surface);
+  border-bottom: 1px solid var(--df-border);
+  box-shadow: var(--df-shadow-xs);
+  color: var(--df-text);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ── Left: menu button + page title ─────────────────────────────────────── */
+.dfh-left {
+  display: flex;
+  align-items: center;
+  gap: var(--df-space-2);
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
+.dfh-menu {
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  margin-left: -6px; /* optical alignment with the page gutter */
+  border-radius: var(--df-radius-md);
+  color: var(--df-text-2);
+  transition:
+    background-color 160ms var(--df-ease-out),
+    color 160ms var(--df-ease-out),
+    box-shadow 160ms var(--df-ease-out);
+}
+
+.dfh-menu svg {
+  width: 20px;
+  height: 20px;
+}
+
+.dfh-menu:hover {
+  background-color: var(--df-surface-hover);
+  color: var(--df-text);
+}
+
+.dfh-menu:active {
+  background-color: var(--df-track);
+}
+
+.dfh-menu:focus-visible {
+  outline: 2px solid transparent; /* shows up in forced-colors mode */
+  box-shadow: var(--df-ring);
+}
+
+.dfh-title {
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 16px;
+  line-height: 24px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--df-text);
+}
+
+/* ── Right: project selector, divider, user chip ────────────────────────── */
+/* Flex basis 0: the title keeps its full width and the selector shrinks first. */
+.dfh-right {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--df-space-3);
+  flex: 1 1 0%;
+  min-width: 0;
+}
+
+.dfh-divider {
+  flex: none;
+  width: 1px;
+  height: 24px;
+  background-color: var(--df-border);
+}
+
+.dfh-user {
+  position: relative;
+  flex: 0 1 auto;
+  align-items: center;
+  gap: var(--df-space-2);
+  min-width: 0;
+  height: 36px;
+  padding: 0 12px 0 4px;
+  border-radius: var(--df-radius-pill);
+  color: var(--df-text-2);
+  text-decoration: none;
+  transition:
+    background-color 160ms var(--df-ease-out),
+    color 160ms var(--df-ease-out),
+    box-shadow 160ms var(--df-ease-out);
+}
+
+.dfh-user:hover {
+  background-color: var(--df-surface-hover);
+  color: var(--df-text);
+}
+
+.dfh-user:focus-visible {
+  outline: 2px solid transparent; /* shows up in forced-colors mode */
+  box-shadow: var(--df-ring);
+}
+
+.dfh-avatar {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--df-brand-border);
+  border-radius: var(--df-radius-pill);
+  background-color: var(--df-brand-soft);
+  color: var(--df-brand-strong);
+  font-size: 11.5px;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: 0.02em;
+  user-select: none;
+}
+
+.dfh-email {
+  min-width: 0;
+  max-width: 220px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 13px;
+  line-height: 20px;
+}
+
+/* Narrow header: avatar-only chip. The email stays in the link's accessible name. */
+@container dfh (max-width: 719.98px) {
+  .dfh-user {
+    flex: none;
+    padding: 4px;
+  }
+
+  .dfh-email {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    clip-path: inset(50%);
+    border: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dfh *,
+  .dfh *::before,
+  .dfh *::after {
+    transition-duration: 1ms !important;
+  }
+}

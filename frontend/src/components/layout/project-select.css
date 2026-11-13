@@ -1,0 +1,245 @@
+@import "../../styles/df-tokens.css";
+
+/* Header project picker: trigger + popover list, matched to the dashboard. */
+.dfh-ps {
+  position: relative;
+  display: inline-flex;
+  min-width: 0;
+}
+
+/* ── Trigger ────────────────────────────────────────────────────────────── */
+.dfh-ps-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--df-space-2);
+  box-sizing: border-box;
+  height: 36px;
+  min-width: 200px;
+  max-width: min(42vw, 360px);
+  padding: 0 10px 0 11px;
+  border: 1px solid var(--df-border);
+  border-radius: var(--df-radius-md);
+  background: var(--df-surface);
+  box-shadow: var(--df-shadow-xs);
+  color: var(--df-text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    border-color 160ms var(--df-ease-out),
+    box-shadow 160ms var(--df-ease-out),
+    background-color 160ms var(--df-ease-out);
+}
+
+.dfh-ps-trigger:hover:not(:disabled) {
+  border-color: var(--df-border-strong);
+  background: var(--df-surface-subtle);
+}
+
+.dfh-ps-trigger:focus-visible {
+  outline: 2px solid transparent; /* forced-colours mode */
+  box-shadow: var(--df-ring);
+}
+
+.dfh-ps[data-open] .dfh-ps-trigger {
+  border-color: var(--df-brand);
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.14);
+}
+
+.dfh-ps-trigger:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.dfh-ps-lead,
+.dfh-ps-chevron {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  color: var(--df-text-3);
+  transition: transform var(--df-dur) var(--df-ease-out), color 160ms var(--df-ease-out);
+}
+
+.dfh-ps[data-open] .dfh-ps-chevron {
+  transform: rotate(180deg);
+  color: var(--df-brand);
+}
+
+.dfh-ps-value {
+  display: flex;
+  align-items: center;
+  gap: var(--df-space-2);
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.dfh-ps-code,
+.dfh-ps-opt-code {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: var(--df-radius-sm);
+  border: 1px solid var(--df-brand-border);
+  background: var(--df-brand-soft);
+  color: var(--df-brand-strong);
+  font-family: var(--df-font-mono);
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.dfh-ps-name,
+.dfh-ps-placeholder {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: 13.5px;
+  line-height: 20px;
+  font-weight: 500;
+}
+
+.dfh-ps-placeholder {
+  color: var(--df-text-3);
+}
+
+/* ── Popover ────────────────────────────────────────────────────────────── */
+@keyframes dfh-ps-in {
+  from { opacity: 0; transform: translateY(-4px) scale(0.98); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes dfh-ps-out {
+  from { opacity: 1; transform: none; }
+  to { opacity: 0; transform: translateY(-4px) scale(0.98); }
+}
+
+.dfh-ps-pop {
+  position: absolute;
+  z-index: 40;
+  top: calc(100% + 6px);
+  right: 0;
+  min-width: 100%;
+  width: max-content;
+  max-width: min(400px, calc(100vw - 24px));
+  padding: 6px;
+  border: 1px solid var(--df-border);
+  border-radius: 12px;
+  background: var(--df-surface);
+  box-shadow: var(--df-shadow-lg), 0 2px 6px rgba(15, 23, 42, 0.06);
+  transform-origin: top right;
+  animation: dfh-ps-in 150ms var(--df-ease-out);
+}
+
+.dfh-ps-pop.is-closing {
+  animation: dfh-ps-out 120ms var(--df-ease-in-out) forwards;
+  pointer-events: none;
+}
+
+.dfh-ps-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 10px 6px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--df-text-3);
+}
+
+.dfh-ps-heading span {
+  min-width: 20px;
+  height: 18px;
+  padding: 0 6px;
+  border-radius: var(--df-radius-pill);
+  background: var(--df-surface-subtle);
+  border: 1px solid var(--df-border);
+  font-size: 11px;
+  line-height: 16px;
+  letter-spacing: 0;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+/* One shared column grid so every project name starts at the same x. */
+.dfh-ps-list {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr) 16px;
+  row-gap: 2px;
+  max-height: min(320px, 60vh);
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+  overscroll-behavior: contain;
+}
+
+.dfh-ps-option {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) 16px; /* fallback without subgrid */
+  grid-template-columns: subgrid;
+  align-items: center;
+  gap: 10px;
+  min-height: 40px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  color: var(--df-text-2);
+  font-size: 13.5px;
+  line-height: 20px;
+  cursor: pointer;
+  transition: background-color 120ms var(--df-ease-out), color 120ms var(--df-ease-out);
+}
+
+.dfh-ps-option.is-active {
+  background: var(--df-surface-hover);
+  color: var(--df-text);
+}
+
+.dfh-ps-option.is-selected {
+  color: var(--df-text);
+  font-weight: 600;
+}
+
+.dfh-ps-opt-name {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.dfh-ps-check {
+  width: 16px;
+  height: 16px;
+  color: var(--df-brand);
+  opacity: 0;
+  transform: scale(0.6);
+  transition: opacity 140ms var(--df-ease-out), transform 140ms var(--df-ease-out);
+}
+
+.dfh-ps-option.is-selected .dfh-ps-check {
+  opacity: 1;
+  transform: none;
+}
+
+/* Phones: show the project code only in the trigger to keep one line. */
+@media (max-width: 639.98px) {
+  .dfh-ps-trigger {
+    min-width: 0;
+    max-width: 46vw;
+  }
+  .dfh-ps-name {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dfh-ps *,
+  .dfh-ps *::before,
+  .dfh-ps *::after {
+    animation-duration: 1ms !important;
+    transition-duration: 1ms !important;
+  }
+}

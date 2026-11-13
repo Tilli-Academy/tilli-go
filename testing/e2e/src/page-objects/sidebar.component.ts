@@ -20,12 +20,12 @@ export class SidebarComponent {
     this.profileLink = this.sidebar.getByRole('link', { name: 'Profile' });
     this.logoutButton = this.sidebar.getByRole('button', { name: /logout/i });
     this.collapseButton = this.sidebar.getByLabel(/collapse sidebar|expand sidebar/i);
-    this.brand = this.sidebar.getByText('DeployFlow');
+    this.brand = this.sidebar.getByText('Tilli-go');
   }
 
   /** Get the active (highlighted) navigation link. */
   getActiveLink(): Locator {
-    return this.sidebar.locator('a.bg-primary');
+    return this.sidebar.locator('a.dfs-item-active');
   }
 
   async navigateTo(target: 'Dashboard' | 'Projects' | 'Tasks' | 'Profile') {
