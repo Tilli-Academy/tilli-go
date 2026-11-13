@@ -1,64 +1,67 @@
-import React from "react";
-import { NavLink, useNavigate } from "react-router-dom";
+import React, { useEffect, useRef } from "react";
+import { NavLink, useLocation, useNavigate } from "react-router-dom";
+import {
+  LayoutGridIcon,
+  LayersIcon,
+  ListChecksIcon,
+  UserIcon,
+  LogOutIcon,
+  ChevronLeftIcon,
+} from "../dashboard/DashboardIcons";
+import "./sidebar.css";
 
 const navItems = [
-  { to: "/dashboard", label: "Dashboard", icon: DashboardIcon },
-  { to: "/projects", label: "Projects", icon: ProjectsIcon },
-  { to: "/tasks", label: "Tasks", icon: TasksIcon },
-  { to: "/profile", label: "Profile", icon: ProfileIcon },
+  { to: "/dashboard", label: "Dashboard", icon: LayoutGridIcon },
+  { to: "/projects", label: "Projects", icon: LayersIcon },
+  { to: "/tasks", label: "Tasks", icon: ListChecksIcon },
+  { to: "/profile", label: "Profile", icon: UserIcon },
 ];
 
-function DashboardIcon() {
-  return (
-    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-        d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zm10 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zm10 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" />
-    </svg>
-  );
+// Same test NavLink uses for `isActive` (case-insensitive; `end` only for /dashboard).
+// Only used to place the sliding indicator; the item styles still come from NavLink.
+function isNavActive(pathname, to, end) {
+  const path = pathname.toLowerCase();
+  const target = to.toLowerCase();
+  return path === target || (!end && path.startsWith(target) && path.charAt(target.length) === "/");
 }
 
-function ProjectsIcon() {
+// Brand mark: two task nodes joined by a step connector.
+function BrandGlyph() {
   return (
-    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-        d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
-    </svg>
-  );
-}
-
-function ProfileIcon() {
-  return (
-    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-        d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-    </svg>
-  );
-}
-
-function TasksIcon() {
-  return (
-    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-        d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
-    </svg>
-  );
-}
-
-function ChevronIcon({ collapsed }) {
-  return (
-    <svg
-      className={`w-5 h-5 transition-transform duration-300 ${collapsed ? "rotate-180" : ""}`}
-      fill="none"
-      stroke="currentColor"
-      viewBox="0 0 24 24"
-    >
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
+    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false">
+      {/* a staircase rising to an arrow: a cutover moving step by step */}
+      <path
+        d="M4 19.5h4.5V15H13v-4.5h3.5"
+        stroke="currentColor"
+        strokeWidth={2.2}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M14.5 5.5H20v5.5M20 5.5l-6.2 6.2"
+        stroke="currentColor"
+        strokeWidth={2.2}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        opacity="0.85"
+      />
     </svg>
   );
 }
 
 export default function Sidebar({ isCollapsed, isMobileOpen, onToggleCollapse, onCloseMobile }) {
   const navigate = useNavigate();
+  const { pathname } = useLocation();
+
+  const activeIndex = navItems.findIndex((item) =>
+    isNavActive(pathname, item.to, item.to === "/dashboard")
+  );
+  // While no item is active the indicator fades out where it was instead of sliding away.
+  const lastIndex = useRef(Math.max(activeIndex, 0));
+  useEffect(() => {
+    if (activeIndex >= 0) lastIndex.current = activeIndex;
+  }, [activeIndex]);
+  const indicatorIndex = activeIndex >= 0 ? activeIndex : lastIndex.current;
 
   const handleLogout = () => {
     localStorage.removeItem("token");
@@ -69,69 +72,70 @@ export default function Sidebar({ isCollapsed, isMobileOpen, onToggleCollapse, o
   return (
     <aside
       className={`
-        border-r bg-gray-900 text-white flex flex-col
-        transition-all duration-300 ease-in-out
+        dfs flex flex-col
         ${isCollapsed ? "w-16" : "w-56"}
         md:relative md:translate-x-0
         fixed inset-y-0 left-0 z-30
         ${isMobileOpen ? "translate-x-0" : "-translate-x-full"}
       `}
+      data-collapsed={isCollapsed ? "" : undefined}
+      data-open={isMobileOpen ? "" : undefined}
     >
       {/* Brand + Desktop Toggle */}
-      <div className="h-14 flex items-center justify-between px-4 border-b border-gray-700">
-        <span className={`text-lg font-bold tracking-tight transition-opacity duration-300 ${isCollapsed ? "opacity-0 w-0" : "opacity-100"}`}>
-          DeployFlow
+      <div className="dfs-brand h-14">
+        <span className="dfs-mark" aria-hidden="true">
+          <BrandGlyph />
         </span>
+        <span className="dfs-wordmark">DeployFlow</span>
         <button
           onClick={onToggleCollapse}
-          className="hidden md:flex items-center justify-center p-1.5 rounded hover:bg-gray-800 transition-colors"
+          className="dfs-toggle hidden md:flex"
           aria-label={isCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+          data-tip={isCollapsed ? "Expand sidebar" : "Collapse sidebar"}
         >
-          <ChevronIcon collapsed={isCollapsed} />
+          <ChevronLeftIcon />
         </button>
       </div>
 
       {/* Navigation */}
-      <nav aria-label="Main navigation" className="flex-1 py-4 px-2 space-y-1">
-        {navItems.map((item) => (
-          <NavLink
-            key={item.to}
-            to={item.to}
-            end={item.to === "/dashboard"}
-            onClick={onCloseMobile}
-            className={({ isActive }) =>
-              `flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium transition-colors ${
-                isActive
-                  ? "bg-blue-600 text-white"
-                  : "text-gray-300 hover:bg-gray-800 hover:text-white"
-              } ${isCollapsed ? "justify-center" : ""}`
-            }
-            title={isCollapsed ? item.label : undefined}
-          >
-            <item.icon aria-hidden="true" />
-            <span className={`transition-opacity duration-300 ${isCollapsed ? "opacity-0 w-0 hidden" : "opacity-100"}`}>
-              {item.label}
-            </span>
-          </NavLink>
-        ))}
+      <nav aria-label="Main navigation" className="dfs-nav">
+        <div className="dfs-section" aria-hidden="true">
+          Menu
+        </div>
+        <div className="dfs-list">
+          <span
+            className="dfs-indicator"
+            aria-hidden="true"
+            data-hidden={activeIndex < 0 ? "" : undefined}
+            style={{ "--dfs-i": indicatorIndex }}
+          />
+          {navItems.map((item) => (
+            <NavLink
+              key={item.to}
+              to={item.to}
+              end={item.to === "/dashboard"}
+              onClick={onCloseMobile}
+              className={({ isActive }) => `dfs-item${isActive ? " dfs-item-active" : ""}`}
+              title={isCollapsed ? item.label : undefined}
+              data-tip={item.label}
+            >
+              <item.icon className="dfs-icon" />
+              <span className="dfs-label">{item.label}</span>
+            </NavLink>
+          ))}
+        </div>
       </nav>
 
       {/* Logout */}
-      <div className="p-3 border-t border-gray-700">
+      <div className="dfs-footer">
         <button
           onClick={handleLogout}
-          className={`w-full flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium text-gray-300 hover:bg-gray-800 hover:text-white transition-colors ${
-            isCollapsed ? "justify-center" : ""
-          }`}
+          className="dfs-item dfs-logout"
           title={isCollapsed ? "Logout" : undefined}
+          data-tip="Logout"
         >
-          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-              d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
-          </svg>
-          <span className={`transition-opacity duration-300 ${isCollapsed ? "opacity-0 w-0 hidden" : "opacity-100"}`}>
-            Logout
-          </span>
+          <LogOutIcon className="dfs-icon" />
+          <span className="dfs-label">Logout</span>
         </button>
       </div>
     </aside>

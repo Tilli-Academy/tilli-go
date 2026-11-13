@@ -31,7 +31,7 @@ export default function MainLayout() {
       {/* Mobile backdrop */}
       {isMobileOpen && (
         <div
-          className="fixed inset-0 bg-black bg-opacity-50 z-20 md:hidden"
+          className="dfs-backdrop fixed inset-0 z-20 md:hidden"
           onClick={toggleMobile}
           aria-hidden="true"
         />

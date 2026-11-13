@@ -1,0 +1,442 @@
+@import "../../styles/df-tokens.css";
+
+/*
+ * Left sidebar (visual layer only).
+ * - Width (w-16 / w-56), fixed/relative positioning, the off-canvas translate and
+ *   z-index stay in Tailwind utilities on the <aside>; nothing here sets them.
+ * - The toggle's show/hide (hidden md:flex) also stays in Tailwind, so nothing here
+ *   sets `display` on it.
+ * - The brand row is h-14 (56px) so its bottom border lines up with the header's.
+ * - All text is AA on the navy surface: #94a3b8 = 7.0:1, #7c8aa0 = 5.1:1.
+ */
+.dfs {
+  --dfs-surface: #0f172a;
+  --dfs-line: rgba(255, 255, 255, 0.07);
+  --dfs-text: #94a3b8;
+  --dfs-icon: #7c8aa0;
+  --dfs-item-h: 38px;
+  --dfs-gap: 4px;
+  --dfs-bar-h: 18px;
+  --dfs-ring: 0 0 0 2px var(--dfs-surface), 0 0 0 4px #60a5fa;
+  /* the existing sidebar motion: 300ms Tailwind ease-in-out */
+  --dfs-layout-dur: 300ms;
+  --dfs-layout-ease: cubic-bezier(0.4, 0, 0.2, 1);
+
+  background: linear-gradient(180deg, #0f172a 0%, #0b1220 100%);
+  border-right: 1px solid rgba(255, 255, 255, 0.06);
+  color: #e2e8f0;
+  -webkit-font-smoothing: antialiased;
+  transition:
+    width var(--dfs-layout-dur) var(--dfs-layout-ease),
+    transform var(--dfs-layout-dur) var(--dfs-layout-ease);
+}
+
+.dfs[data-collapsed] {
+  --dfs-item-h: 40px;
+}
+
+/* ── Brand row ──────────────────────────────────────────────────────────── */
+/* The mark sits at a fixed 18px inset, so it is centred in the 64px rail and
+   does not move while the width animates. */
+.dfs-brand {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 10px;
+  padding: 0 18px;
+  overflow: hidden;
+  border-bottom: 1px solid var(--dfs-line);
+}
+
+.dfs-mark {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  background: linear-gradient(140deg, #3b82f6 0%, #1d4ed8 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.22),
+    0 1px 2px rgba(2, 6, 23, 0.5),
+    0 4px 10px -4px rgba(37, 99, 235, 0.5);
+  color: #fff;
+}
+
+.dfs-mark svg {
+  width: 18px;
+  height: 18px;
+}
+
+.dfs-wordmark {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  font-size: 15px;
+  line-height: 20px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: #fff;
+  transition:
+    opacity 180ms var(--df-ease-out) 110ms,
+    transform 220ms var(--df-ease-out) 90ms;
+}
+
+.dfs[data-collapsed] .dfs-wordmark {
+  opacity: 0;
+  transform: translateX(-6px);
+  transition:
+    opacity 120ms var(--df-ease-out),
+    transform 160ms var(--df-ease-out);
+}
+
+/* ── Collapse toggle ────────────────────────────────────────────────────── */
+/* One element with two docks: the brand row's right edge (expanded) and the free
+   slot under the mark (collapsed), so it never overlaps the mark and keeps focus.
+   It docks without travelling and fades in once the rail has room; the chevron
+   turns 180deg. */
+.dfs-toggle {
+  --dfs-tip-x: 22px;
+  position: absolute;
+  z-index: 1;
+  top: 14px;
+  right: 13px;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  color: #94a3b8;
+  animation: dfs-dock-wide var(--dfs-layout-dur) var(--df-ease-out);
+  transition:
+    background-color 160ms var(--df-ease-out),
+    color 160ms var(--df-ease-out),
+    box-shadow 160ms var(--df-ease-out);
+}
+
+.dfs[data-collapsed] .dfs-toggle {
+  top: 70px;
+  right: auto;
+  left: 18px;
+  animation-name: dfs-dock-rail;
+}
+
+/* Same fade under two names, so switching state restarts it. */
+@keyframes dfs-dock-wide {
+  0%, 65% { opacity: 0; }
+  100% { opacity: 1; }
+}
+
+@keyframes dfs-dock-rail {
+  0%, 40% { opacity: 0; }
+  100% { opacity: 1; }
+}
+
+.dfs-toggle svg {
+  width: 18px;
+  height: 18px;
+  transition: transform var(--dfs-layout-dur) var(--dfs-layout-ease);
+}
+
+.dfs[data-collapsed] .dfs-toggle svg {
+  transform: rotate(180deg);
+}
+
+.dfs-toggle:hover {
+  background-color: rgba(255, 255, 255, 0.06);
+  color: #fff;
+}
+
+.dfs-toggle:active {
+  background-color: rgba(255, 255, 255, 0.09);
+}
+
+/* ── Navigation ─────────────────────────────────────────────────────────── */
+/* 11px on the right: the aside's 1px border sits inside its width, so this
+   keeps the items 40px square (and centred on the mark) in the 64px rail. */
+.dfs-nav {
+  flex: 1 1 auto;
+  padding: 12px 11px 12px 12px;
+}
+
+/* Fixed-height slot: keeps the rhythm when the label fades out, and hosts the
+   toggle in collapsed mode. */
+.dfs-section {
+  display: flex;
+  align-items: center;
+  height: 32px;
+  margin-bottom: 4px;
+  padding: 0 11px;
+  overflow: hidden;
+  white-space: nowrap;
+  font-size: 11px;
+  line-height: 16px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--dfs-icon);
+  user-select: none;
+  transition: opacity 180ms var(--df-ease-out) 110ms;
+}
+
+.dfs[data-collapsed] .dfs-section {
+  opacity: 0;
+  transition: opacity 100ms var(--df-ease-out);
+}
+
+.dfs-list {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: var(--dfs-gap);
+}
+
+/* ── Item (links + logout) ──────────────────────────────────────────────── */
+/* Width follows the rail (200px / 40px) and the icon keeps the same x in both
+   states, so collapsing only fades the label. */
+.dfs-item {
+  --dfs-tip-x: 16px;
+  position: relative;
+  display: flex;
+  align-items: center;
+  width: 100%;
+  height: var(--dfs-item-h);
+  padding: 0 11px;
+  border-radius: var(--df-radius-md);
+  color: var(--dfs-text);
+  font-size: 13.5px;
+  line-height: 20px;
+  font-weight: 500;
+  text-align: left;
+  text-decoration: none;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    background-color 160ms var(--df-ease-out),
+    color 160ms var(--df-ease-out),
+    box-shadow 160ms var(--df-ease-out),
+    height var(--dfs-layout-dur) var(--dfs-layout-ease);
+}
+
+.dfs-icon {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  color: var(--dfs-icon);
+  transition:
+    color 160ms var(--df-ease-out),
+    transform 180ms var(--df-ease-out);
+}
+
+.dfs-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin-left: 12px;
+  overflow: hidden;
+  transition: opacity 180ms var(--df-ease-out) 110ms;
+}
+
+.dfs[data-collapsed] .dfs-label {
+  opacity: 0;
+  transition: opacity 100ms var(--df-ease-out);
+}
+
+.dfs-item:hover {
+  background-color: rgba(255, 255, 255, 0.05);
+  color: #e2e8f0;
+}
+
+.dfs-item:hover .dfs-icon {
+  color: #cbd5e1;
+  transform: translateX(1px);
+}
+
+.dfs-item:active {
+  background-color: rgba(255, 255, 255, 0.07);
+}
+
+.dfs-item-active,
+.dfs-item-active:hover,
+.dfs-item-active:active {
+  background-color: rgba(59, 130, 246, 0.14);
+  box-shadow: inset 0 0 0 1px rgba(96, 165, 250, 0.18);
+  color: #fff;
+}
+
+.dfs-item-active .dfs-icon,
+.dfs-item-active:hover .dfs-icon {
+  color: #93c5fd;
+}
+
+/* Logout: restrained danger tint on hover. */
+.dfs-logout:hover {
+  background-color: rgba(239, 68, 68, 0.1);
+  color: #fecaca;
+}
+
+.dfs-logout:hover .dfs-icon {
+  color: #f87171;
+}
+
+.dfs-logout:active {
+  background-color: rgba(239, 68, 68, 0.14);
+}
+
+/* ── Focus ──────────────────────────────────────────────────────────────── */
+.dfs-item:focus-visible,
+.dfs-toggle:focus-visible {
+  outline: 2px solid transparent; /* shows up in forced-colors mode */
+  box-shadow: var(--dfs-ring);
+  color: #e2e8f0;
+}
+
+.dfs-item-active:focus-visible {
+  box-shadow: inset 0 0 0 1px rgba(96, 165, 250, 0.18), var(--dfs-ring);
+  color: #fff;
+}
+
+/* ── Sliding active indicator ───────────────────────────────────────────── */
+/* One bar at the rail's left edge; --dfs-i is the active item's index. */
+.dfs-indicator {
+  position: absolute;
+  top: 0;
+  left: -12px;
+  width: 3px;
+  height: var(--dfs-bar-h);
+  border-radius: 0 3px 3px 0;
+  background-color: #3b82f6;
+  box-shadow: 0 0 6px rgba(59, 130, 246, 0.25);
+  pointer-events: none;
+  transform: translateY(
+    calc(var(--dfs-i, 0) * (var(--dfs-item-h) + var(--dfs-gap)) + (var(--dfs-item-h) - var(--dfs-bar-h)) / 2)
+  );
+  transition:
+    transform 220ms var(--df-ease-out),
+    opacity 160ms var(--df-ease-out);
+}
+
+.dfs-indicator[data-hidden] {
+  opacity: 0;
+}
+
+/* ── Footer ─────────────────────────────────────────────────────────────── */
+.dfs-footer {
+  flex: none;
+  padding: 12px 11px 12px 12px;
+  border-top: 1px solid var(--dfs-line);
+}
+
+/* ── Collapsed tooltips (the title attribute stays as well) ─────────────── */
+.dfs[data-collapsed] .dfs-item::after,
+.dfs[data-collapsed] .dfs-toggle::after {
+  content: attr(data-tip);
+  content: attr(data-tip) / ""; /* visual only: the name already comes from the label */
+  position: absolute;
+  z-index: 40;
+  top: 50%;
+  left: calc(100% + var(--dfs-tip-x));
+  padding: 6px 10px;
+  border-radius: var(--df-radius-sm);
+  background: #0f172a;
+  box-shadow:
+    0 0 0 1px rgba(255, 255, 255, 0.06),
+    0 10px 24px -8px rgba(2, 6, 23, 0.45),
+    0 2px 6px rgba(2, 6, 23, 0.2);
+  color: #f1f5f9;
+  font-size: 12px;
+  line-height: 16px;
+  font-weight: 500;
+  letter-spacing: 0;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transform: translate(-4px, -50%);
+  transition:
+    opacity 140ms var(--df-ease-out),
+    transform 140ms var(--df-ease-out);
+}
+
+/* arrow */
+.dfs[data-collapsed] .dfs-item::before,
+.dfs[data-collapsed] .dfs-toggle::before {
+  content: "";
+  position: absolute;
+  z-index: 41;
+  top: 50%;
+  left: calc(100% + var(--dfs-tip-x) - 5px);
+  width: 0;
+  height: 0;
+  border-style: solid;
+  border-width: 5px 5px 5px 0;
+  border-color: transparent #0f172a transparent transparent;
+  opacity: 0;
+  pointer-events: none;
+  transform: translate(-4px, -50%);
+  transition:
+    opacity 140ms var(--df-ease-out),
+    transform 140ms var(--df-ease-out);
+}
+
+.dfs[data-collapsed] .dfs-item:hover::after,
+.dfs[data-collapsed] .dfs-item:hover::before,
+.dfs[data-collapsed] .dfs-item:focus-visible::after,
+.dfs[data-collapsed] .dfs-item:focus-visible::before,
+.dfs[data-collapsed] .dfs-toggle:hover::after,
+.dfs[data-collapsed] .dfs-toggle:hover::before,
+.dfs[data-collapsed] .dfs-toggle:focus-visible::after,
+.dfs[data-collapsed] .dfs-toggle:focus-visible::before {
+  opacity: 1;
+  transform: translate(0, -50%);
+  transition-delay: 60ms;
+}
+
+/* ── Mobile off-canvas (< md) ───────────────────────────────────────────── */
+/* Closed: hidden once the slide-out finishes, so off-screen links can't take focus. */
+@media (max-width: 767.98px) {
+  .dfs {
+    transition:
+      width var(--dfs-layout-dur) var(--dfs-layout-ease),
+      transform var(--dfs-layout-dur) var(--dfs-layout-ease),
+      box-shadow var(--dfs-layout-dur) var(--dfs-layout-ease),
+      visibility 0s linear var(--dfs-layout-dur);
+  }
+
+  .dfs:not([data-open]) {
+    visibility: hidden;
+  }
+
+  .dfs[data-open] {
+    visibility: visible;
+    box-shadow: 0 20px 50px rgba(2, 6, 23, 0.45);
+    transition-delay: 0s;
+  }
+}
+
+/* Backdrop (rendered by MainLayout while the mobile menu is open). */
+.dfs-backdrop {
+  background-color: rgba(2, 6, 23, 0.45);
+  -webkit-backdrop-filter: blur(2px);
+  backdrop-filter: blur(2px);
+  animation: dfs-fade 200ms var(--df-ease-out);
+}
+
+@keyframes dfs-fade {
+  from {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dfs,
+  .dfs *,
+  .dfs *::before,
+  .dfs *::after,
+  .dfs-backdrop {
+    transition-duration: 1ms !important;
+    transition-delay: 0s !important;
+    animation-duration: 1ms !important;
+    animation-delay: 0s !important;
+    animation-iteration-count: 1 !important;
+  }
+}

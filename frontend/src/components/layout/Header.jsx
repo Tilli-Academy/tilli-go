@@ -1,6 +1,8 @@
 import React, { useContext } from "react";
 import { useLocation, Link } from "react-router-dom";
 import { ProjectContext } from "../../App";
+import ProjectSelect from "./ProjectSelect";
+import "./header.css";
 
 const pageTitles = {
   "/dashboard": "Dashboard",
@@ -9,10 +11,26 @@ const pageTitles = {
   "/profile": "Profile",
 };
 
+// Avatar initials: first two letters/digits of the email's local part ("admin@…" -> "AD").
+function getInitials(email) {
+  const local = String(email || "").split("@")[0];
+  const chars = local.replace(/[^a-z0-9]/gi, "").slice(0, 2);
+  return chars ? chars.toUpperCase() : "?";
+}
+
 function MenuIcon() {
   return (
-    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.8}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <path d="M4 7h16M4 12h16M4 17h16" />
     </svg>
   );
 }
@@ -35,43 +53,35 @@ export default function Header({ onToggleMobile }) {
   }, []);
 
   return (
-    <header className="h-14 border-b bg-white flex items-center justify-between px-4 md:px-6">
-      <div className="flex items-center gap-3">
+    <header className="dfh h-14 flex items-center justify-between px-4 md:px-6">
+      <div className="dfh-left">
         {/* Mobile menu button */}
         <button
           onClick={onToggleMobile}
-          className="md:hidden p-1.5 rounded hover:bg-gray-100 transition-colors"
+          className="dfh-menu inline-flex md:hidden"
           aria-label="Toggle menu"
         >
           <MenuIcon />
         </button>
-        <h1 className="text-lg font-semibold text-gray-800">{title}</h1>
+        <h1 className="dfh-title">{title}</h1>
       </div>
-      <div className="flex items-center gap-4">
-        <select
-          value={selectedProjectId || ""}
-          onChange={(e) => setSelectedProjectId(e.target.value || null)}
-          disabled={projectsLoading}
-          aria-label="Select project"
-          className="text-sm border border-gray-300 rounded px-2 py-1.5 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
-        >
-          {projectsLoading ? (
-            <option value="" disabled>Loading projects...</option>
-          ) : (
-            <>
-              <option value="" disabled>Select Project</option>
-              {projects.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.code} — {p.name}
-                </option>
-              ))}
-            </>
-          )}
-        </select>
+      <div className="dfh-right">
+        <ProjectSelect
+          projects={projects}
+          value={selectedProjectId}
+          onChange={(id) => setSelectedProjectId(id || null)}
+          loading={projectsLoading}
+        />
         {user && (
-          <Link to="/profile" className="hidden sm:block text-sm text-gray-500 hover:text-gray-700 transition-colors">
-            {user.email}
-          </Link>
+          <>
+            <span className="dfh-divider hidden sm:block" aria-hidden="true" />
+            <Link to="/profile" className="dfh-user hidden sm:flex" title={user.email}>
+              <span className="dfh-avatar" aria-hidden="true">
+                {getInitials(user.email)}
+              </span>
+              <span className="dfh-email">{user.email}</span>
+            </Link>
+          </>
         )}
       </div>
     </header>

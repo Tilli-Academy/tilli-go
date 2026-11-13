@@ -1,0 +1,567 @@
+@import "../../styles/df-tokens.css";
+
+/*
+ * Recent tasks card (dashboard, lower row).
+ * The card is a size container, so the layout follows the card's own width:
+ *   >= 1024px   six-column table
+ *   681-1023px  same rows; "System · Team" sits under the task name so the
+ *               task name keeps enough room (the card is ~720-790px wide next
+ *               to the donut on 1366/1440 screens)
+ *   <= 680px    stacked list: ID + status, task name, meta line
+ * Every layout shows the same rows, values and order of information.
+ */
+
+.dfd-tasks {
+  container: tasks / inline-size;
+  --dfd-tasks-w-id: 124px;
+  --dfd-tasks-w-sys: 104px;
+  --dfd-tasks-w-team: 176px;
+  --dfd-tasks-w-status: 172px;
+  --dfd-tasks-w-start: 148px;
+  --dfd-tasks-radius: calc(var(--df-radius-lg) - 1px);
+}
+
+/* Horizontal scroll inside the card is only a fallback (e.g. no container
+   query support); the card never pushes the page wider. */
+.dfd-tasks-scroll {
+  margin-top: var(--df-space-4);
+  overflow-x: auto;
+  overflow-y: hidden;
+  border-radius: 0 0 var(--dfd-tasks-radius) var(--dfd-tasks-radius);
+}
+
+/* ── Wide: six-column table ─────────────────────────────────────────────── */
+.dfd-tasks-table {
+  width: 100%;
+  min-width: 920px;
+  border-collapse: separate;
+  border-spacing: 0;
+  table-layout: fixed;
+  font-size: 13.5px;
+  line-height: 20px;
+  color: var(--df-text);
+}
+
+.dfd-tasks-col-id { width: var(--dfd-tasks-w-id); }
+.dfd-tasks-col-sys { width: var(--dfd-tasks-w-sys); }
+.dfd-tasks-col-team { width: var(--dfd-tasks-w-team); }
+.dfd-tasks-col-status { width: var(--dfd-tasks-w-status); }
+.dfd-tasks-col-start { width: var(--dfd-tasks-w-start); }
+
+.dfd-tasks-th {
+  height: 36px;
+  padding: 0 16px;
+  background: var(--df-surface-subtle);
+  border-top: 1px solid var(--df-border);
+  border-bottom: 1px solid var(--df-border);
+  color: var(--df-text-3);
+  font-size: 11px;
+  line-height: 16px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  text-align: left;
+  vertical-align: middle;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dfd-tasks-th:first-child { padding-left: 20px; }
+.dfd-tasks-th:last-child { padding-right: 20px; }
+
+.dfd-tasks-row {
+  animation: dfd-row-in 360ms var(--df-ease-out) backwards;
+  animation-delay: calc(260ms + var(--i, 0) * 35ms);
+  transition:
+    background-color var(--df-dur-fast) var(--df-ease-out),
+    box-shadow var(--df-dur-fast) var(--df-ease-out);
+}
+
+.dfd-tasks-row:hover {
+  background-color: var(--df-surface-hover);
+}
+
+.dfd-tasks-td {
+  height: 52px;
+  padding: 10px 16px;
+  vertical-align: middle;
+  border-bottom: 1px solid var(--df-border);
+  transition: box-shadow var(--df-dur-fast) var(--df-ease-out);
+}
+
+.dfd-tasks-td:first-child { padding-left: 20px; }
+.dfd-tasks-td:last-child { padding-right: 20px; }
+
+.dfd-tasks-row:last-child > .dfd-tasks-td {
+  border-bottom: 0;
+}
+
+
+/* ── Cell content ───────────────────────────────────────────────────────── */
+.dfd-tasks-id {
+  display: inline-block;
+  max-width: 100%;
+  padding: 2px 6px;
+  vertical-align: middle;
+  border: 1px solid var(--df-border);
+  border-radius: var(--df-radius-sm);
+  background: var(--df-surface-subtle);
+  color: var(--df-text-2);
+  font-family: var(--df-font-mono);
+  font-size: 12px;
+  line-height: 16px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: background-color var(--df-dur-fast) var(--df-ease-out);
+}
+
+.dfd-tasks-row:hover .dfd-tasks-id {
+  background: var(--df-surface);
+}
+
+.dfd-tasks-name {
+  display: block;
+  overflow: hidden;
+  font-size: 13.5px;
+  line-height: 20px;
+  font-weight: 500;
+  color: var(--df-text);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.dfd-tasks-text {
+  display: block;
+  overflow: hidden;
+  font-size: 13px;
+  line-height: 18px;
+  color: var(--df-text-2);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.dfd-tasks-none {
+  font-size: 13px;
+  line-height: 18px;
+  color: var(--df-text-3);
+}
+
+.dfd-tasks-c-status .dfd-pill {
+  vertical-align: middle;
+}
+
+.dfd-tasks-when {
+  display: block;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.dfd-tasks-date {
+  display: block;
+  font-size: 13px;
+  line-height: 18px;
+  font-weight: 500;
+  color: var(--df-text);
+}
+
+.dfd-tasks-time {
+  display: block;
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--df-text-3);
+}
+
+/* only shown in the stacked list, where there is no column header */
+.dfd-tasks-when-icon {
+  display: none;
+}
+
+/* ── Empty state ────────────────────────────────────────────────────────── */
+.dfd-tasks-empty-row {
+  animation: dfd-row-in 360ms var(--df-ease-out) 260ms backwards;
+}
+
+.dfd-tasks-empty {
+  padding: 40px 20px 44px;
+  text-align: center;
+}
+
+.dfd-tasks-empty-inner {
+  display: grid;
+  justify-items: center;
+  gap: var(--df-space-3);
+}
+
+.dfd-tasks-empty-icon {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border: 1px solid var(--df-border);
+  border-radius: var(--df-radius-md);
+  background: var(--df-surface-subtle);
+  box-shadow: var(--df-shadow-xs);
+  color: var(--df-text-3);
+}
+
+.dfd-tasks-empty-icon svg {
+  width: 20px;
+  height: 20px;
+}
+
+.dfd-tasks-empty-text {
+  margin: 0;
+  max-width: 34ch;
+  font-size: 13.5px;
+  line-height: 20px;
+  color: var(--df-text-3);
+}
+
+/* when the grid stretches the card, keep the empty state centred in it */
+.dfd-tasks[data-empty="true"] {
+  display: flex;
+  flex-direction: column;
+}
+
+.dfd-tasks[data-empty="true"] .dfd-tasks-scroll {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+}
+
+.dfd-tasks[data-empty="true"] .dfd-tasks-table {
+  flex: 1 1 auto;
+}
+
+/* ── Medium: System · Team under the task name ──────────────────────────── */
+@container tasks (max-width: 1023px) {
+  .dfd-tasks-scroll {
+    overflow: visible;
+  }
+
+  .dfd-tasks-table {
+    --dfd-tasks-w-id: 120px;
+    --dfd-tasks-w-status: 162px;
+    --dfd-tasks-w-start: 142px;
+    display: block;
+    min-width: 0;
+  }
+
+  .dfd-tasks-table > thead,
+  .dfd-tasks-table > tbody,
+  .dfd-tasks-empty-row,
+  .dfd-tasks-empty {
+    display: block;
+  }
+
+  .dfd-tasks-table > colgroup {
+    display: none;
+  }
+
+  .dfd-tasks[data-empty="true"] .dfd-tasks-table {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .dfd-tasks[data-empty="true"] .dfd-tasks-table > tbody {
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    justify-content: center;
+  }
+
+  /* header: ID / Status / Planned start keep the body's column widths */
+  .dfd-tasks-head-row {
+    display: flex;
+    align-items: center;
+    height: 36px;
+    background: var(--df-surface-subtle);
+    border-top: 1px solid var(--df-border);
+    border-bottom: 1px solid var(--df-border);
+  }
+
+  .dfd-tasks-head-row > .dfd-tasks-th {
+    display: block;
+    flex: none;
+    height: auto;
+    padding: 0 12px;
+    background: none;
+    border: 0;
+  }
+
+  .dfd-tasks-head-row > .dfd-tasks-c-id {
+    width: var(--dfd-tasks-w-id);
+    padding-left: 20px;
+  }
+
+  .dfd-tasks-head-row > .dfd-tasks-c-task { padding-right: 0; }
+  .dfd-tasks-head-row > .dfd-tasks-c-sys { padding: 0; }
+
+  .dfd-tasks-head-row > .dfd-tasks-c-team {
+    flex: 1 1 0;
+    min-width: 0;
+    padding-left: 0;
+  }
+
+  .dfd-tasks-head-row > .dfd-tasks-c-sys::before,
+  .dfd-tasks-head-row > .dfd-tasks-c-team::before {
+    content: "·";
+    content: "·" / "";
+    margin: 0 6px;
+  }
+
+  .dfd-tasks-head-row > .dfd-tasks-c-status { width: var(--dfd-tasks-w-status); }
+
+  .dfd-tasks-head-row > .dfd-tasks-c-start {
+    width: var(--dfd-tasks-w-start);
+    padding-right: 20px;
+  }
+
+  /* body rows: a two-line grid */
+  .dfd-tasks-row {
+    display: grid;
+    grid-template-columns:
+      var(--dfd-tasks-w-id) auto minmax(0, 1fr)
+      var(--dfd-tasks-w-status) var(--dfd-tasks-w-start);
+    grid-template-areas:
+      "id task task status start"
+      "id sys  team status start";
+    align-items: center;
+    row-gap: 2px;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--df-border);
+  }
+
+  .dfd-tasks-row:last-child {
+    border-bottom: 0;
+    border-radius: 0 0 var(--dfd-tasks-radius) var(--dfd-tasks-radius);
+  }
+
+
+  .dfd-tasks-row > .dfd-tasks-td {
+    min-width: 0;
+    height: auto;
+    padding: 0 12px;
+    border-bottom: 0;
+  }
+
+  .dfd-tasks-row:hover > .dfd-tasks-td:first-child {
+    box-shadow: none;
+  }
+
+  .dfd-tasks-row > .dfd-tasks-c-id {
+    grid-area: id;
+    padding-left: 20px;
+  }
+
+  .dfd-tasks-row > .dfd-tasks-c-task {
+    grid-area: task;
+    align-self: end;
+  }
+
+  .dfd-tasks-row > .dfd-tasks-c-sys {
+    grid-area: sys;
+    align-self: start;
+    max-width: calc((100cqi - 424px) / 2);
+    padding-right: 0;
+  }
+
+  .dfd-tasks-row > .dfd-tasks-c-team {
+    grid-area: team;
+    align-self: start;
+    display: flex;
+    padding-left: 0;
+  }
+
+  .dfd-tasks-row > .dfd-tasks-c-team::before {
+    content: "·";
+    content: "·" / "";
+    flex: none;
+    margin: 0 6px;
+    color: var(--df-text-3);
+    font-size: 12.5px;
+    line-height: 17px;
+  }
+
+  .dfd-tasks-row > .dfd-tasks-c-status { grid-area: status; }
+
+  .dfd-tasks-row > .dfd-tasks-c-start {
+    grid-area: start;
+    padding-right: 20px;
+  }
+
+  .dfd-tasks-c-sys .dfd-tasks-text,
+  .dfd-tasks-c-team .dfd-tasks-text,
+  .dfd-tasks-c-team .dfd-tasks-none {
+    min-width: 0;
+    font-size: 12.5px;
+    line-height: 17px;
+  }
+}
+
+/* ── Narrow: stacked list ───────────────────────────────────────────────── */
+@container tasks (max-width: 680px) {
+  .dfd-tasks-scroll {
+    margin-top: var(--df-space-3);
+  }
+
+  /* header stays available to screen readers */
+  .dfd-tasks-table > thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    clip-path: inset(50%);
+    white-space: nowrap;
+    border: 0;
+  }
+
+  .dfd-tasks-table > tbody {
+    border-top: 1px solid var(--df-border);
+  }
+
+  /* line 1: ID + status · line 2: task name · line 3: System · Team  date */
+  .dfd-tasks-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    column-gap: 12px;
+    row-gap: 0;
+    padding: 14px 20px; /* 20px lines up with the card head */
+  }
+
+  .dfd-tasks-row > .dfd-tasks-td {
+    max-width: 100%;
+    padding: 0;
+  }
+
+  .dfd-tasks-row > .dfd-tasks-c-id {
+    order: 1;
+    flex: 1 1 0;
+  }
+
+  .dfd-tasks-row > .dfd-tasks-c-status {
+    order: 2;
+    flex: none;
+  }
+
+  .dfd-tasks-row > .dfd-tasks-c-task {
+    order: 3;
+    flex: 1 1 100%;
+    margin-top: 8px;
+  }
+
+  .dfd-tasks-row > .dfd-tasks-c-sys {
+    order: 4;
+    margin-top: 4px;
+  }
+
+  .dfd-tasks-row > .dfd-tasks-c-team {
+    order: 5;
+    margin-top: 4px;
+  }
+
+  /* the gap already spaces the dot; pull it back so it sits centred */
+  .dfd-tasks-row > .dfd-tasks-c-team::before {
+    margin: 0 6px 0 -6px;
+  }
+
+  .dfd-tasks-row > .dfd-tasks-c-start {
+    order: 6;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 4px;
+    line-height: 18px;
+  }
+
+  .dfd-tasks-id {
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
+  .dfd-tasks-name {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    font-size: 14px;
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
+  .dfd-tasks-text,
+  .dfd-tasks-none {
+    overflow: visible;
+    font-size: 12.5px;
+    line-height: 18px;
+    white-space: normal;
+    text-overflow: clip;
+    overflow-wrap: anywhere;
+  }
+
+  .dfd-tasks-c-sys .dfd-tasks-text,
+  .dfd-tasks-c-team .dfd-tasks-text,
+  .dfd-tasks-c-team .dfd-tasks-none,
+  .dfd-tasks-row > .dfd-tasks-c-team::before {
+    line-height: 18px;
+  }
+
+  .dfd-tasks-when {
+    display: inline;
+    white-space: normal;
+  }
+
+  .dfd-tasks-date,
+  .dfd-tasks-time {
+    display: inline;
+    font-size: 12.5px;
+    line-height: 18px;
+    white-space: nowrap;
+  }
+
+  .dfd-tasks-date {
+    color: var(--df-text-2);
+  }
+
+  .dfd-tasks-when-icon {
+    display: block;
+    flex: none;
+    width: 13px;
+    height: 13px;
+    color: var(--df-text-3);
+  }
+
+  /* status hint: anchor to the pill's right edge so it stays inside the card */
+  .dfd-tasks .dfd-tasks-c-status .dfd-tip::after {
+    left: auto;
+    right: 0;
+    width: max-content;
+    max-width: calc(100cqi - 32px);
+    white-space: normal;
+    transform: translate(0, 4px);
+  }
+
+  .dfd-tasks .dfd-tasks-c-status .dfd-tip:hover::after,
+  .dfd-tasks .dfd-tasks-c-status .dfd-tip:focus-visible::after {
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dfd-tasks-row,
+  .dfd-tasks-empty-row {
+    animation: none;
+  }
+}
+
+/* Very narrow cards: the planned start always gets its own line, so rows stay even. */
+@container tasks (max-width: 480px) {
+  .dfd-tasks-row > .dfd-tasks-c-start {
+    flex-basis: 100%;
+  }
+}
