@@ -21,6 +21,12 @@ interface WorkerConfig {
     tenantId: string;
     mailFrom: string;
   };
+  alerts: {
+    replyTo: string;
+    releaseManager: string;
+    timeZone: string;
+    allowedDomains: string[];
+  };
   frontendUrl: string;
   ackTokenSecret: string;
   ackTokenExpiryMs: number;
@@ -69,6 +75,17 @@ const config: WorkerConfig = {
     clientSecret: process.env.MICROSOFT_CLIENT_SECRET || '',
     tenantId: process.env.MICROSOFT_TENANT_ID || '',
     mailFrom: process.env.MICROSOFT_MAIL_FROM || '',
+  },
+  // Start-time alerts. Keep in sync with backend/src/modules/alerts/settings.ts.
+  alerts: {
+    replyTo: process.env.ALERT_REPLY_TO || `release-management@${process.env.EMAIL_DOMAIN || 'tilli.pro'}`,
+    releaseManager:
+      process.env.ALERT_RELEASE_MANAGER_EMAIL || `release-management@${process.env.EMAIL_DOMAIN || 'tilli.pro'}`,
+    timeZone: process.env.ALERT_TIMEZONE || 'Asia/Kolkata',
+    allowedDomains: (process.env.ALERT_ALLOWED_DOMAINS || process.env.EMAIL_DOMAIN || 'tilli.pro')
+      .split(',')
+      .map((d) => d.trim().toLowerCase())
+      .filter(Boolean),
   },
   frontendUrl: process.env.FRONTEND_URL || 'http://localhost:3000',
   ackTokenSecret,

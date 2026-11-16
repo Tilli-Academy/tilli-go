@@ -56,7 +56,11 @@ docker/    docker-compose.yml, *.Dockerfile, api-entrypoint.sh, nginx/nginx.conf
 | GET/POST | /api/projects, /api/projects/:id | JWT | Project CRUD |
 | GET/POST/PUT/DELETE | /api/tasks, /api/tasks/:id | JWT | Task CRUD |
 | GET | /api/tasks/:id/dependencies | JWT | Dependency status |
-| GET | /api/acknowledge | Token | Acknowledge via email link |
+| GET | /api/acknowledge/preview | Token | Read-only task details for the confirm page |
+| POST | /api/acknowledge | Token | Acknowledge (owner clicked "Acknowledge & start") |
+| GET | /api/acknowledge | Token | Acknowledge via older email links |
+| GET/PATCH | /api/alerts/projects/:id | JWT | Start-time alerts switch, status, history (see CHANGE_REQUESTS.md) |
+| POST | /api/cutover/import | JWT | Import a cutover sheet (CSV) as a project |
 | GET | /health | Public | Docker health check |
 | GET/POST | /api/scheduler/status, /api/scheduler/trigger | Public | Scheduler |
 
@@ -131,3 +135,5 @@ DATABASE_URL="postgresql://deployflow:change-me-in-production@localhost:5438/dep
 |---|---|
 | `20260416110859_init` | User, Task, TaskDependency, AuditLog |
 | `20260417120000_add_project_support` | Project model, projectId + sequenceNumber on Task |
+| `20261116000000_add_change_requests` | ChangeRequest, ChangeEvent, ChangeAttachment |
+| `20261117000000_add_start_time_alerts` | projects.start_alerts_enabled, TaskAlert |

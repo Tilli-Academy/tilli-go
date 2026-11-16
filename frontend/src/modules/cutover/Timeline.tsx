@@ -2,6 +2,9 @@ import { useContext, useEffect, useMemo, useState } from 'react';
 import { ProjectContext } from '../../App';
 import api, { getErrorMessage } from '../../services/api';
 import { durationKind, formatDuration, type DurationKind } from './duration';
+import AlertsPanel from '../alerts/AlertsPanel';
+import ImportSheet from './ImportSheet';
+import { alertLabel, hhmm, type TaskAlertInfo } from '../alerts/alertMeta';
 
 interface TTask {
   id: string;
@@ -13,9 +16,10 @@ interface TTask {
   assignedUser: { name: string; email: string } | null;
   plannedStartTime: string | null;
   plannedEndTime: string | null;
+  alert: TaskAlertInfo | null;
 }
 interface TimelineData {
-  project: { id: string; code: string; name: string };
+  project: { id: string; code: string; name: string; startAlertsEnabled: boolean };
   tasks: TTask[];
   dependencies: { taskId: string; dependsOnTaskId: string }[];
   clashes: { a: string; b: string }[];
@@ -49,13 +53,24 @@ export default function Timeline() {
   const [range, setRange] = useState<string>('');
   const [selected, setSelected] = useState<string | null>(null);
 
+  const [reload, setReload] = useState(0);
+
   useEffect(() => {
     if (!selectedProjectId) return;
     setData(null); setSelected(null); setRange('');
-    api.get<TimelineData>(`/cutover/${selectedProjectId}/timeline`)
-      .then((r) => { setData(r.data); setError(null); })
-      .catch((e) => setError(getErrorMessage(e)));
   }, [selectedProjectId]);
+
+  // Load, then refresh quietly so statuses and alerts update live during a cutover.
+  useEffect(() => {
+    if (!selectedProjectId) return;
+    let alive = true;
+    const load = () => api.get<TimelineData>(`/cutover/${selectedProjectId}/timeline`)
+      .then((r) => { if (alive) { setData(r.data); setError(null); } })
+      .catch((e) => { if (alive) setError(getErrorMessage(e)); });
+    load();
+    const h = setInterval(load, 15_000);
+    return () => { alive = false; clearInterval(h); };
+  }, [selectedProjectId, reload]);
 
   const model = useMemo(() => {
     if (!data) return null;
@@ -161,9 +176,12 @@ export default function Timeline() {
   return (
     <div className="flex-1 overflow-y-auto">
       <div className="p-4 sm:p-6 space-y-5 max-w-[1400px] mx-auto">
-        <div>
-          <h2 className="text-xl font-semibold text-text-primary">Cutover timeline · {project?.code ?? data.project.code}</h2>
-          <p className="text-sm text-text-secondary">One row per owner. Tasks side by side run in parallel; tasks linked by a dependency run one by one. Click a task to trace it.</p>
+        <div className="flex flex-wrap items-start gap-3">
+          <div className="mr-auto">
+            <h2 className="text-xl font-semibold text-text-primary">Cutover timeline · {project?.code ?? data.project.code}</h2>
+            <p className="text-sm text-text-secondary">One row per owner. Tasks side by side run in parallel; tasks linked by a dependency run one by one. Click a task to trace it.</p>
+          </div>
+          <ImportSheet />
         </div>
 
         <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
@@ -258,6 +276,8 @@ export default function Timeline() {
           </aside>
         </div>
 
+        <AlertsPanel projectId={data.project.id} onChanged={() => setReload((n) => n + 1)} />
+
         {unscheduled.length > 0 && (
           <div className="bg-surface border border-border rounded-card shadow-card p-4">
             <p className="text-sm font-semibold text-text-primary mb-2">Not scheduled yet ({unscheduled.length})</p>
@@ -278,7 +298,7 @@ function Bar({ t, pct, from, to, clash, dim, role, onClick }: {
   const kind = durationKind(t.plannedStartTime, t.plannedEndTime);
   const [s, e] = visualSpan(t);
   const ring = role === 'self' ? 'ring-2 ring-primary' : role === 'dep' ? 'ring-2 ring-sky-500' : role === 'blocks' ? 'ring-2 ring-violet-500' : '';
-  const label = `#${t.sequenceNumber} ${t.taskName} · ${t.status} · ${formatDuration(t.plannedStartTime, t.plannedEndTime)}`;
+  const label = `#${t.sequenceNumber} ${t.taskName} · ${t.status} · ${formatDuration(t.plannedStartTime, t.plannedEndTime)}${t.alert ? ` · alert: ${alertLabel(t.alert).label}` : ''}`;
   const base = `absolute top-1.5 h-7 cursor-pointer transition-opacity ${dim ? 'opacity-25' : ''} ${ring}`;
 
   if (kind === 'milestone') {
@@ -297,7 +317,7 @@ function Bar({ t, pct, from, to, clash, dim, role, onClick }: {
   return (
     <button type="button" onClick={onClick} title={label} aria-label={label} style={style}
       className={`${base} rounded-md border text-left px-1.5 text-[11px] font-medium truncate ${STATUS[t.status] ?? STATUS.Pending} ${clash ? '!border-2 !border-rose-500' : ''}`}>
-      {s < from && '◀ '}#{t.sequenceNumber} {t.taskName}{e > to && ' ▶'}
+      {s < from && '◀ '}{t.alert && <span aria-hidden="true">{alertLabel(t.alert).icon} </span>}#{t.sequenceNumber} {t.taskName}{e > to && ' ▶'}
     </button>
   );
 }
@@ -321,6 +341,16 @@ function TaskPanel({ t, model, code, onPick }: { t: TTask; model: any; code: str
         <p>End: <b>{t.plannedEndTime ? new Date(t.plannedEndTime).toLocaleString('en-GB') : 'N/A'}</b></p>
         <p>Duration: <b>{formatDuration(t.plannedStartTime, t.plannedEndTime)}</b>{kind === 'long-running' && ' - long-running, does not block the owner'}{kind === 'milestone' && ' - a checkpoint'}</p>
       </div>
+      {(() => {
+        const a = alertLabel(t.alert, t.status);
+        return (
+          <div className={`rounded-md border p-2 text-xs ${a.cls}`}>
+            <p className="font-semibold">{a.icon} Start-time alert: {a.label}</p>
+            {t.alert?.recipient && <p className="mt-0.5 break-all">To {t.alert.recipient}{t.alert.sentAt ? ` at ${hhmm(t.alert.sentAt)}` : ''}{t.alert.acknowledgedAt ? ` · started ${hhmm(t.alert.acknowledgedAt)}` : ''}</p>}
+            {a.hint && <p className="mt-0.5 opacity-80">{a.hint}</p>}
+          </div>
+        );
+      })()}
       {model.clashOf.has(t.id) && <div><p className="text-xs font-semibold text-rose-700 mb-1">Clashes (same owner, same time)</p>{list(model.clashOf.get(t.id), 'bg-rose-50 text-rose-800')}</div>}
       <div><p className="text-xs font-semibold text-sky-700 mb-1">Waits for</p>{list(model.deps.get(t.id), 'bg-sky-50 text-sky-800')}</div>
       <div><p className="text-xs font-semibold text-violet-700 mb-1">Blocks</p>{list(model.dependents.get(t.id), 'bg-violet-50 text-violet-800')}</div>
@@ -342,5 +372,10 @@ function Legend({ kind }: { kind: DurationKind }) {
 }
 
 function Empty({ text }: { text: string }) {
-  return <div className="flex-1 overflow-y-auto p-6"><p className="text-sm text-text-secondary">{text}</p></div>;
+  return (
+    <div className="flex-1 overflow-y-auto p-6 space-y-3">
+      <p className="text-sm text-text-secondary">{text}</p>
+      <ImportSheet />
+    </div>
+  );
 }

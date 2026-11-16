@@ -115,6 +115,7 @@ export async function loadPlan(projectId: string) {
         assignedUserId: true, assignedTeam: true, plannedStartTime: true, plannedEndTime: true,
         actualStartTime: true, actualEndTime: true,
         assignedUser: { select: { name: true, email: true } },
+        alert: { select: { status: true, sentAt: true, acknowledgedAt: true, recipient: true } },
       },
       orderBy: { sequenceNumber: 'asc' },
     }),

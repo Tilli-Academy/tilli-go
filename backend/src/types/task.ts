@@ -144,6 +144,7 @@ export interface TaskResponse {
   dependencies: string[];
   assignedUser: TaskAssignedUser | null;
   project: TaskProjectRef;
+  alert: TaskAlertRef | null;
 }
 
 // ── Prisma include shape ────────────────────────────────────────────────────
@@ -160,13 +161,26 @@ export const TASK_INCLUDE = {
   project: {
     select: { id: true, code: true, name: true },
   },
+  alert: {
+    select: { status: true, recipient: true, sentAt: true, acknowledgedAt: true, attempts: true },
+  },
 } as const;
+
+/** Start-time alert summary attached to a task */
+export interface TaskAlertRef {
+  status: string;
+  recipient: string | null;
+  sentAt: Date | null;
+  acknowledgedAt: Date | null;
+  attempts: number;
+}
 
 /** Raw Prisma result when using TASK_INCLUDE */
 export interface TaskWithIncludes extends PrismaTask {
   dependsOn: Array<{ dependsOnTaskId: string }>;
   assignedUser: TaskAssignedUser | null;
   project: TaskProjectRef;
+  alert: TaskAlertRef | null;
 }
 
 // ── Dependency types ────────────────────────────────────────────────────────

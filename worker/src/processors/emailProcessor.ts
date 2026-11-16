@@ -2,7 +2,8 @@ import { Job } from 'bullmq';
 import prisma from '../config/prisma';
 import logger from '../config/logger';
 import config from '../config';
-import { sendEmail, sendCompletionEmail } from '../services/emailService';
+import { sendCompletionEmail, sendMailInternal } from '../services/emailService';
+import { buildManagerNotice, buildStartAlert, type AlertTask } from '../services/alertEmail';
 import type { EmailJobPayload, EmailProcessorResult } from '../types';
 
 /**
@@ -48,9 +49,12 @@ const processor = async (job: Job<EmailJobPayload>): Promise<EmailProcessorResul
       return { status: 'skipped', reason: 'status_moved_on' };
     }
 
-    const to =
-      task.assignedUser?.email ||
-      `${task.assignedTeam || config.email.fallbackTeam}@${config.email.domain}`;
+    // Never guess an address from a team name, and only email company addresses.
+    const to = task.assignedUser?.email;
+    if (!to || !domainAllowed(to)) {
+      log.info({ to: to ?? null }, 'No company owner address — skipping completion email');
+      return { status: 'skipped', reason: to ? 'blocked_domain' : 'no_owner' };
+    }
 
     const result = await sendCompletionEmail(task);
 
@@ -75,43 +79,102 @@ const processor = async (job: Job<EmailJobPayload>): Promise<EmailProcessorResul
     return { status: 'sent', messageId: result.messageId };
   }
 
-  // ── Default: trigger email ───────────────────────────────────────────
+  // ── Default: start-time alert ───────────────────────────────────────
   if (task.status !== 'Triggered') {
-    log.info(
-      { currentStatus: task.status },
-      'Task no longer in Triggered state — skipping email'
-    );
+    log.info({ currentStatus: task.status }, 'Task no longer in Triggered state — skipping email');
     return { status: 'skipped', reason: 'status_moved_on' };
   }
+  return sendStartAlert(job, log);
+};
 
-  // ── 3. Send email ───────────────────────────────────────────────────
-  const to =
-    task.assignedUser?.email ||
-    `${task.assignedTeam || config.email.fallbackTeam}@${config.email.domain}`;
+const ALERT_TASK_INCLUDE = {
+  assignedUser: { select: { id: true, email: true, name: true } },
+  project: { select: { code: true, name: true } },
+  dependsOn: { select: { dependsOn: { select: { sequenceNumber: true, taskName: true, actualEndTime: true } } } },
+} as const;
 
-  const result = await sendEmail(task);
+async function recordAlert(taskId: string, data: Record<string, unknown>): Promise<void> {
+  await prisma.taskAlert.upsert({
+    where: { taskId },
+    create: { taskId, status: String(data.status), ...data },
+    update: data,
+  });
+}
 
-  // ── 4. Audit (best-effort — don't retry the whole job if only audit fails) ──
+async function audit(taskId: string, action: string, newValue: string): Promise<void> {
   try {
-    await prisma.auditLog.create({
-      data: {
-        taskId,
-        action: 'EMAIL_SENT',
-        field: null,
-        oldValue: null,
-        newValue: `to=${to} messageId=${result.messageId}`,
-      },
-    });
-  } catch (auditErr: unknown) {
-    log.error(
-      { err: auditErr instanceof Error ? auditErr.message : String(auditErr), messageId: result.messageId },
-      'Email sent but audit log write failed'
-    );
+    await prisma.auditLog.create({ data: { taskId, action, field: null, oldValue: null, newValue } });
+  } catch (err: unknown) {
+    logger.error({ taskId, err: err instanceof Error ? err.message : String(err) }, 'Audit log write failed');
+  }
+}
+
+function domainAllowed(email: string): boolean {
+  const domain = email.split('@').pop()?.toLowerCase() ?? '';
+  return config.alerts.allowedDomains.includes(domain);
+}
+
+/** Best effort: tell the release manager. Never throws. */
+async function tellManager(task: AlertTask, reason: 'no_owner' | 'blocked_domain' | 'failed', detail?: string) {
+  try {
+    const { subject, html } = buildManagerNotice(task, reason, detail);
+    await sendMailInternal(config.alerts.releaseManager, subject, html, 'RELEASE MANAGER NOTICE');
+  } catch (err: unknown) {
+    logger.error({ taskId: task.id, err: err instanceof Error ? err.message : String(err) }, 'Release manager notice failed');
+  }
+}
+
+/**
+ * Start-time alert: one email per task to its owner, from the company mailbox.
+ *   - no owner            → NO_OWNER, release manager told (never guess an address)
+ *   - non-company address → BLOCKED_DOMAIN, release manager told
+ *   - send error          → RETRYING (BullMQ retries); on the last attempt FAILED + manager told
+ */
+async function sendStartAlert(job: Job<EmailJobPayload>, log: typeof logger): Promise<EmailProcessorResult> {
+  const { taskId } = job.data;
+  const task = (await prisma.task.findUnique({ where: { id: taskId }, include: ALERT_TASK_INCLUDE })) as AlertTask | null;
+  if (!task) return { status: 'skipped', reason: 'task_not_found' };
+
+  const existing = await prisma.taskAlert.findUnique({ where: { taskId } });
+  if (existing && ['SENT', 'ACKNOWLEDGED', 'NO_OWNER', 'BLOCKED_DOMAIN', 'FAILED'].includes(existing.status)) {
+    log.info({ alertStatus: existing.status }, 'Alert already handled — one alert per task');
+    return { status: 'skipped', reason: 'already_alerted' };
   }
 
-  log.info({ messageId: result.messageId }, 'Email sent successfully');
+  if (!task.assignedUser) {
+    await recordAlert(taskId, { status: 'NO_OWNER', recipient: config.alerts.releaseManager });
+    await audit(taskId, 'ALERT_NO_OWNER', `no owner — release manager told (${config.alerts.releaseManager})`);
+    await tellManager(task, 'no_owner');
+    return { status: 'skipped', reason: 'no_owner' };
+  }
 
-  return { status: 'sent', messageId: result.messageId };
-};
+  const to = task.assignedUser.email;
+  if (!domainAllowed(to)) {
+    await recordAlert(taskId, { status: 'BLOCKED_DOMAIN', recipient: to });
+    await audit(taskId, 'ALERT_BLOCKED_DOMAIN', `not sent to ${to} — outside company domains; release manager told`);
+    await tellManager(task, 'blocked_domain', to);
+    return { status: 'skipped', reason: 'blocked_domain' };
+  }
+
+  const attempt = job.attemptsMade + 1;
+  const maxAttempts = job.opts.attempts ?? 1;
+  try {
+    const { subject, html } = buildStartAlert(task);
+    const result = await sendMailInternal(to, subject, html, 'START-TIME ALERT SENT', config.alerts.replyTo);
+    await recordAlert(taskId, {
+      status: 'SENT', recipient: to, sentAt: new Date(), attempts: attempt, lastError: null, messageId: result.messageId,
+    });
+    await audit(taskId, 'EMAIL_SENT', `to=${to} attempt=${attempt} messageId=${result.messageId}`);
+    log.info({ messageId: result.messageId, to }, 'Start-time alert sent');
+    return { status: 'sent', messageId: result.messageId };
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    const final = attempt >= maxAttempts;
+    await recordAlert(taskId, { status: final ? 'FAILED' : 'RETRYING', recipient: to, attempts: attempt, lastError: message.slice(0, 500) });
+    await audit(taskId, final ? 'ALERT_FAILED' : 'ALERT_RETRY', `to=${to} attempt ${attempt} of ${maxAttempts}: ${message.slice(0, 200)}`);
+    if (final) await tellManager(task, 'failed', message.slice(0, 200));
+    throw err;
+  }
+}
 
 export = processor;

@@ -6,6 +6,7 @@ import completeRoutes from './completeRoutes';
 import projectRoutes from './projectRoutes';
 import changeRequestRoutes from '../modules/changeRequests/routes';
 import cutoverRoutes from '../modules/cutover/routes';
+import alertRoutes from '../modules/alerts/routes';
 import auth from '../middleware/auth';
 import * as scheduler from '../services/schedulerService';
 
@@ -16,6 +17,7 @@ router.use('/tasks', taskRoutes);
 router.use('/projects', projectRoutes);
 router.use('/change-requests', changeRequestRoutes);
 router.use('/cutover', cutoverRoutes);
+router.use('/alerts', alertRoutes);
 router.use('/acknowledge', acknowledgeRoutes);
 router.use('/complete', completeRoutes);
 

@@ -12,6 +12,7 @@ import DependencyEditor, {
 import { TASK_STATUSES, SYSTEMS } from '../../utils/constants';
 import type { Task } from '../../types';
 import { formatDuration } from '../../modules/cutover/duration';
+import { alertLabel, hhmm } from '../../modules/alerts/alertMeta';
 
 function dateFormatter(params: ValueFormatterParams<Task, string | null>): string {
   if (!params.value) return '';
@@ -106,6 +107,18 @@ export const columnDefs: ColDef<Task>[] = [
     width: 140,
     editable: false,
     valueGetter: (p: ValueGetterParams<Task>) => formatDuration(p.data?.plannedStartTime ?? null, p.data?.plannedEndTime ?? null),
+  },
+  {
+    // Read-only: set by the worker when the start-time alert goes out / is acknowledged.
+    headerName: 'Start-time alert',
+    width: 230,
+    editable: false,
+    valueGetter: (p: ValueGetterParams<Task>) => {
+      const a = p.data?.alert;
+      const l = alertLabel(a, p.data?.status);
+      const when = a?.acknowledgedAt ? ` · started ${hhmm(a.acknowledgedAt)}` : a?.sentAt ? ` · ${hhmm(a.sentAt)}` : '';
+      return `${l.icon ? `${l.icon} ` : ''}${l.label}${when}`;
+    },
   },
   {
     field: 'actualStartTime',

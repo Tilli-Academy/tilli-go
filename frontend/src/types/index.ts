@@ -37,6 +37,8 @@ export interface Task {
   dependencies: string[];
   assignedUser: TaskAssignedUser | null;
   project: TaskProjectRef;
+  /** Start-time alert, if one has gone out for this task */
+  alert?: { status: string; recipient: string | null; sentAt: string | null; acknowledgedAt: string | null; attempts?: number } | null;
 }
 
 export interface Project {

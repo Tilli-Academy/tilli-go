@@ -82,6 +82,16 @@ async function processTrigger(job: Job<TaskJobPayload>): Promise<TaskProcessorRe
 
   log.info('Task status → Triggered');
 
+  // ── 5b. Start-time alerts are switched on per project ───────────────
+  const project = await prisma.project.findUnique({
+    where: { id: task.projectId },
+    select: { startAlertsEnabled: true },
+  });
+  if (!project?.startAlertsEnabled) {
+    log.info('Start-time alerts are off for this project — no email');
+    return { status: 'triggered', taskId };
+  }
+
   // ── 6. Enqueue email ────────────────────────────────────────────────
   // Only taskId is passed — the email processor fetches the task,
   // signs the ack token, and sends via nodemailer.
@@ -115,6 +125,16 @@ async function processCompletion(job: Job<TaskJobPayload>): Promise<TaskProcesso
   if (task.status !== 'Acknowledged') {
     log.info({ currentStatus: task.status }, 'Task not Acknowledged — skipping completion');
     return { status: 'skipped', reason: 'not_acknowledged' };
+  }
+
+  // Same switch as start-time alerts: no emails for projects that have them off.
+  const project = await prisma.task.findUnique({
+    where: { id: taskId },
+    select: { project: { select: { startAlertsEnabled: true } } },
+  });
+  if (!project?.project.startAlertsEnabled) {
+    log.info('Alerts are off for this project — no completion email');
+    return { status: 'skipped', reason: 'alerts_off' };
   }
 
   await addEmailJob({ taskId, type: 'completion' });

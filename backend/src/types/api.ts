@@ -64,4 +64,6 @@ export interface CompleteSuccessResponse {
 export interface AckTokenData {
   taskId: string;
   exp: number;
+  /** Owner the alert was sent to (start-time alerts). Absent on older links. */
+  uid?: string;
 }

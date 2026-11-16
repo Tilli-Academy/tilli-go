@@ -19,11 +19,12 @@ const isMock = !config.smtp.host || !config.smtp.user;
 
 // ── Signed acknowledgement tokens (HMAC-SHA256) ─────────────────────────────
 
-export function signAckToken(taskId: string): string {
+export function signAckToken(taskId: string, opts: { uid?: string; exp?: number } = {}): string {
   const payload = Buffer.from(
     JSON.stringify({
       taskId,
-      exp: Date.now() + config.ackTokenExpiryMs,
+      exp: opts.exp ?? Date.now() + config.ackTokenExpiryMs,
+      ...(opts.uid ? { uid: opts.uid } : {}),
     }),
   ).toString('base64url');
 
@@ -42,7 +43,7 @@ export function buildAckUrl(taskId: string): string {
 
 // ── HTML escaping ────────────────────────────────────────────────────────────
 
-function escapeHtml(str: string): string {
+export function escapeHtml(str: string): string {
   return str
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
@@ -105,11 +106,12 @@ export interface EmailResult {
 
 // ── Shared send logic ────────────────────────────────────────────────────────
 
-async function sendMailInternal(
+export async function sendMailInternal(
   to: string,
   subject: string,
   html: string,
   logLabel: string,
+  replyTo?: string,
 ): Promise<EmailResult> {
   if (config.microsoft.mailEnabled) {
     const messageId = await sendEmailViaGraph(to, subject, html);
@@ -122,6 +124,7 @@ async function sendMailInternal(
     to,
     subject,
     html,
+    ...(replyTo ? { replyTo } : {}),
   });
 
   const messageId: string = isMock
