@@ -60,7 +60,6 @@ docker/    docker-compose.yml, *.Dockerfile, api-entrypoint.sh, nginx/nginx.conf
 | POST | /api/acknowledge | Token | Acknowledge (owner clicked "Acknowledge & start") |
 | GET | /api/acknowledge | Token | Acknowledge via older email links |
 | GET/PATCH | /api/alerts/projects/:id | JWT | Start-time alerts switch, status, history (see CHANGE_REQUESTS.md) |
-| POST | /api/cutover/import | JWT | Import a cutover sheet (CSV) as a project |
 | GET | /health | Public | Docker health check |
 | GET/POST | /api/scheduler/status, /api/scheduler/trigger | Public | Scheduler |
 

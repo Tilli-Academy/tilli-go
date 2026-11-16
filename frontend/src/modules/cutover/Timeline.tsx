@@ -3,7 +3,6 @@ import { ProjectContext } from '../../App';
 import api, { getErrorMessage } from '../../services/api';
 import { durationKind, formatDuration, type DurationKind } from './duration';
 import AlertsPanel from '../alerts/AlertsPanel';
-import ImportSheet from './ImportSheet';
 import { alertLabel, hhmm, type TaskAlertInfo } from '../alerts/alertMeta';
 
 interface TTask {
@@ -176,12 +175,9 @@ export default function Timeline() {
   return (
     <div className="flex-1 overflow-y-auto">
       <div className="p-4 sm:p-6 space-y-5 max-w-[1400px] mx-auto">
-        <div className="flex flex-wrap items-start gap-3">
-          <div className="mr-auto">
-            <h2 className="text-xl font-semibold text-text-primary">Cutover timeline · {project?.code ?? data.project.code}</h2>
-            <p className="text-sm text-text-secondary">One row per owner. Tasks side by side run in parallel; tasks linked by a dependency run one by one. Click a task to trace it.</p>
-          </div>
-          <ImportSheet />
+        <div>
+          <h2 className="text-xl font-semibold text-text-primary">Cutover timeline · {project?.code ?? data.project.code}</h2>
+          <p className="text-sm text-text-secondary">One row per owner. Tasks side by side run in parallel; tasks linked by a dependency run one by one. Click a task to trace it.</p>
         </div>
 
         <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
@@ -372,10 +368,5 @@ function Legend({ kind }: { kind: DurationKind }) {
 }
 
 function Empty({ text }: { text: string }) {
-  return (
-    <div className="flex-1 overflow-y-auto p-6 space-y-3">
-      <p className="text-sm text-text-secondary">{text}</p>
-      <ImportSheet />
-    </div>
-  );
+  return <div className="flex-1 overflow-y-auto p-6"><p className="text-sm text-text-secondary">{text}</p></div>;
 }

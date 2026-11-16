@@ -92,8 +92,3 @@ When a task's **planned start arrives** and **everything before it is Completed*
 - `DEMO_TOOLS=true` shows **▶ Start live rehearsal** on the alerts panel (release managers only). It rebuilds project `LIVE` timed from *now*: within ~2 minutes one owner is emailed, one task has no owner, one owner is outside the company, and one waits on `LIVE-1` — mark `LIVE-1` Completed to release it. **↻ Check now** runs the scheduler immediately instead of waiting for the next minute.
 - Real emails without a real mailbox: start with `--profile mail` and set `SMTP_HOST=mailpit SMTP_PORT=1025 SMTP_USER=demo SMTP_PASS=demo`. Every email lands in the Mailpit inbox (`MAILPIT_PORT`, default 8025) and never leaves the machine.
 
-# Import from Excel
-**Import from Excel** on the Timeline uploads the "Cutover Activities" tab saved as CSV and creates a project from it (`POST /api/cutover/import?name=&code=&startAt=`, body = CSV).
-- Sections (Pre-Deployment, Deployment, Post Deployment, Business Validation, Status updates), landscape → system, team, assignee (used as the owner), estimated start/end (read as US Central), status (`In-Progress` → Acknowledged, `N/A` → Completed with a note), pre-req and comments come across.
-- **Reported, not hidden**: rows that end before they start (imported with no end), dates that aren't dates, durations that disagree with start/end, and owner clashes (shown on the Timeline).
-- *Re-plan for a new cutover night* moves the whole plan so the first Deployment task starts at the chosen time; untick to keep the sheet's dates. Alerts stay Off for imported projects.
