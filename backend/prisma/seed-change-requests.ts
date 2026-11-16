@@ -85,6 +85,29 @@ async function main(): Promise<void> {
     }
   }
 
+
+  type Step2 = { system: string; name: string; team: string; owner: string; start: Date; end: Date | null; status: string; deps?: number[] };
+  /** Detailed cutover plan with explicit times and dependencies (by sequence number). */
+  async function plan(c: { id: string; number: number; title: string }, actorId: string, daysAgo: number, steps: Step2[]) {
+    const code = `CR-${c.number}`;
+    const p = await prisma.project.create({ data: { code, name: `${code} ${c.title}`.slice(0, 100), description: `Cutover plan for change request ${code}` } });
+    await prisma.changeRequest.update({ where: { id: c.id }, data: { projectId: p.id } });
+    await prisma.changeEvent.create({ data: { changeRequestId: c.id, kind: 'CUTOVER', actorId, message: `created the cutover plan (project ${code})`, createdAt: ago(daysAgo) } });
+    const ids: string[] = [];
+    for (const [i, st] of steps.entries()) {
+      const done = st.status === 'Completed';
+      const t = await prisma.task.create({
+        data: {
+          projectId: p.id, sequenceNumber: i + 1, system: st.system, taskName: st.name, assignedTeam: st.team, assignedUserId: st.owner,
+          status: st.status, plannedStartTime: st.start, plannedEndTime: st.end,
+          actualStartTime: done || st.status === 'Acknowledged' ? st.start : null, actualEndTime: done ? st.end ?? st.start : null,
+        },
+      });
+      ids.push(t.id);
+      for (const d of st.deps ?? []) await prisma.taskDependency.create({ data: { taskId: t.id, dependsOnTaskId: ids[d - 1]! } });
+    }
+  }
+
   const c1 = await cr({
     title: 'Nudge - WhatsApp channel for customer onboarding', product: 'Nudge', releaseType: 'Major release', priority: 'High',
     impact: 'High', risk: 'Medium', customer: 'Bluewave Finance', labels: ['whatsapp', 'onboarding'], goLive: -10,
@@ -110,13 +133,18 @@ async function main(): Promise<void> {
     assigneeId: priya.id, reporterId: anita.id, createdDaysAgo: 12,
     path: [{ to: 'ASSESS', by: priya.id, daysAgo: 11 }, { to: 'SCHEDULED', by: anita.id, daysAgo: 7 }, { to: 'IMPLEMENT', by: priya.id, daysAgo: 0.1 }],
   });
-  await cutover(c2, 0, priya.id, 6, [
-    ['Comms', 'Send go-live notice to Acme and internal teams', 'BA', rahul.id, 'Completed'],
-    ['DB', 'Back up Nudge production database', 'DBA', sneha.id, 'Completed'],
-    ['Nudge', 'Enter Acme API credentials in Nudge call settings', 'Dev', priya.id, 'Completed'],
-    ['Nudge', 'Deploy Nudge release 4.2 to production', 'Dev', priya.id, 'Acknowledged'],
-    ['QA', 'Smoke test: trigger 5 nudges via Acme API', 'QA', arjun.id, 'Pending'],
-    ['Comms', 'Confirm go-live with Acme and close the window', 'BA', rahul.id, 'Pending'],
+  // CR-1002 shows every cutover case: a multi-day approval, parallel tasks with
+  // different owners, a dependency chain, a 0:00 checkpoint and an N/A (open) task.
+  await plan(c2, priya.id, 6, [
+    { system: 'Mgmt', name: 'Management go-live approval', team: 'Management', owner: anita.id, start: at(-3, 9), end: at(0, 8), status: 'Completed' },
+    { system: 'Comms', name: 'Send go-live notice to Acme and internal teams', team: 'BA', owner: rahul.id, start: at(0, 9), end: at(0, 9, 30), status: 'Completed', deps: [1] },
+    { system: 'DB', name: 'Back up Nudge production database', team: 'DBA', owner: sneha.id, start: at(0, 9), end: at(0, 9, 45), status: 'Completed', deps: [1] },
+    { system: 'Nudge', name: 'Enter Acme API credentials in Nudge call settings', team: 'Dev', owner: priya.id, start: at(0, 9), end: at(0, 9, 20), status: 'Completed', deps: [1] },
+    { system: 'Nudge', name: 'Deploy Nudge release 4.2 to production', team: 'Dev', owner: priya.id, start: at(0, 9, 45), end: at(0, 10, 30), status: 'Acknowledged', deps: [3, 4] },
+    { system: 'QA', name: 'Smoke test: trigger 5 nudges via Acme API', team: 'QA', owner: arjun.id, start: at(0, 10, 30), end: at(0, 11), status: 'Pending', deps: [5] },
+    { system: 'Mgmt', name: 'Go / No-Go decision', team: 'Management', owner: vikram.id, start: at(0, 11), end: at(0, 11), status: 'Pending', deps: [6] },
+    { system: 'Comms', name: 'Confirm go-live with Acme and close the window', team: 'BA', owner: rahul.id, start: at(0, 11), end: at(0, 11, 15), status: 'Pending', deps: [7] },
+    { system: 'Support', name: 'Hypercare monitoring (until stable)', team: 'Support', owner: sneha.id, start: at(0, 11, 15), end: null, status: 'Pending', deps: [7] },
   ]);
   await comment(c2.id, rahul.id, 'Acme confirmed their sandbox API credentials work. Production keys shared via the vault.', 6);
   await comment(c2.id, arjun.id, 'UAT passed on the quality environment - 42/42 test cases green.', 2);

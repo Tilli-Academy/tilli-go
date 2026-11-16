@@ -15,6 +15,7 @@ import CompletePage from './components/acknowledge/CompletePage';
 import ChangeRequestList from './modules/changeRequests/ChangeRequestList';
 import NewChangeRequest from './modules/changeRequests/NewChangeRequest';
 import ChangeRequestDetail from './modules/changeRequests/ChangeRequestDetail';
+import Timeline from './modules/cutover/Timeline';
 import ErrorBoundary from './components/ui/ErrorBoundary';
 import ToastContainer from './components/ui/Toast';
 import { projectService } from './services/projectService';
@@ -125,6 +126,7 @@ function App() {
                 <Route path="/change-requests/new" element={<NewChangeRequest />} />
                 <Route path="/change-requests/:id" element={<ChangeRequestDetail />} />
                 <Route path="/tasks" element={<TaskGrid />} />
+                <Route path="/timeline" element={<Timeline />} />
                 <Route path="/projects" element={<Projects />} />
                 <Route path="/profile" element={<Profile />} />
               </Route>

@@ -11,6 +11,7 @@ import DependencyEditor, {
 } from './cellRenderers/DependencyDropdown';
 import { TASK_STATUSES, SYSTEMS } from '../../utils/constants';
 import type { Task } from '../../types';
+import { formatDuration } from '../../modules/cutover/duration';
 
 function dateFormatter(params: ValueFormatterParams<Task, string | null>): string {
   if (!params.value) return '';
@@ -98,6 +99,13 @@ export const columnDefs: ColDef<Task>[] = [
     cellEditor: DateTimeEditor,
     cellEditorPopup: true,
     editable: isEditable,
+  },
+  {
+    // Read-only: 0:00 checkpoints, multi-day tasks and N/A (no end) are all valid.
+    headerName: 'Duration',
+    width: 140,
+    editable: false,
+    valueGetter: (p: ValueGetterParams<Task>) => formatDuration(p.data?.plannedStartTime ?? null, p.data?.plannedEndTime ?? null),
   },
   {
     field: 'actualStartTime',

@@ -37,6 +37,13 @@ export default function ChangeRequestDetail() {
     }
   };
 
+  const openTimeline = async () => {
+    if (!cr?.project) return;
+    await refreshProjects();
+    setSelectedProjectId(cr.project.id);
+    navigate('/timeline');
+  };
+
   const openCutover = async () => {
     if (!cr) return;
     setBusy(true);
@@ -147,7 +154,10 @@ export default function ChangeRequestDetail() {
                     <p className="text-xs text-text-secondary">Step-by-step go-live tasks in the Tilli-go task grid - owners, times, dependencies and email reminders.</p>
                   </div>
                   {cr.project ? (
-                    <button type="button" onClick={openCutover} disabled={busy} className={btnGhost}>Open tasks ({cr.project.code}) →</button>
+                    <div className="flex gap-2">
+                      <button type="button" onClick={openTimeline} disabled={busy} className={btnGhost}>Timeline</button>
+                      <button type="button" onClick={openCutover} disabled={busy} className={btnGhost}>Open tasks ({cr.project.code}) →</button>
+                    </div>
                   ) : !finished && (
                     <button type="button" onClick={openCutover} disabled={busy} className={btnPrimary}>+ Create cutover plan</button>
                   )}

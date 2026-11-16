@@ -6,6 +6,7 @@ import {
   LayersIcon,
   ListChecksIcon,
   FlagIcon,
+  CalendarIcon,
   UserIcon,
   LogOutIcon,
   ChevronLeftIcon,
@@ -24,6 +25,7 @@ const navItems: NavItem[] = [
   { to: "/change-requests", label: "Change Requests", icon: FlagIcon },
   { to: "/projects", label: "Projects", icon: LayersIcon },
   { to: "/tasks", label: "Tasks", icon: ListChecksIcon },
+  { to: "/timeline", label: "Timeline", icon: CalendarIcon },
   { to: "/profile", label: "Profile", icon: UserIcon },
 ];
 

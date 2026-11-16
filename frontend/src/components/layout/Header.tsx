@@ -10,6 +10,7 @@ const pageTitles: Record<string, string> = {
   "/projects": "Projects",
   "/profile": "Profile",
   "/change-requests": "Change Requests",
+  "/timeline": "Cutover Timeline",
   "/change-requests/new": "New Change Request",
 };
 

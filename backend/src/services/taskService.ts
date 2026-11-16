@@ -2,6 +2,7 @@ import type { Prisma } from '@prisma/client';
 import prisma from '../config/prisma';
 import logger from '../config/logger';
 import { AppError } from '../utils/errors';
+import { assertNoOwnerClash } from '../modules/cutover/rules';
 import { setDependencies, assertDependenciesMet } from './dependencyService';
 import {
   TASK_INCLUDE,
@@ -123,6 +124,21 @@ async function create(data: CreateTaskDTO, opts: CreateTaskOptions = {}): Promis
     throw new AppError('Project not found', 404);
   }
 
+  // Cutover planning rules: end >= start, and parallel tasks need different owners.
+  await assertNoOwnerClash(
+    {
+      projectId: taskData.projectId,
+      sequenceNumber: 0,
+      taskName: taskData.taskName,
+      status: TaskStatus.Pending,
+      assignedUserId: taskData.assignedUserId ?? null,
+      assignedTeam: taskData.assignedTeam ?? null,
+      plannedStartTime: taskData.plannedStartTime ?? null,
+      plannedEndTime: taskData.plannedEndTime ?? null,
+    },
+    dependencies,
+  );
+
   // Generate sequenceNumber atomically within a transaction
   const task = await prisma.$transaction(async (tx) => {
     const lastTask = await tx.task.findFirst({
@@ -199,6 +215,27 @@ async function update(id: string, data: UpdateTaskDTO, opts: UpdateTaskOptions =
   }
 
   const userId = opts.userId ?? null;
+
+  // Cutover planning rules - only when the schedule, owner or dependencies change,
+  // so status-only updates from the scheduler/worker are never blocked.
+  const PLAN_FIELDS = ['plannedStartTime', 'plannedEndTime', 'assignedUserId', 'assignedTeam'] as const;
+  if (PLAN_FIELDS.some((f) => f in taskFields) || dependencies !== undefined) {
+    const pick = <T,>(next: T | undefined, old: T): T => (next === undefined ? old : next);
+    await assertNoOwnerClash(
+      {
+        id,
+        projectId: existing.projectId,
+        sequenceNumber: existing.sequenceNumber,
+        taskName: pick(taskFields.taskName, existing.taskName),
+        status: pick(taskFields.status, existing.status),
+        assignedUserId: pick(taskFields.assignedUserId, existing.assignedUserId),
+        assignedTeam: pick(taskFields.assignedTeam, existing.assignedTeam),
+        plannedStartTime: pick(taskFields.plannedStartTime, existing.plannedStartTime),
+        plannedEndTime: pick(taskFields.plannedEndTime, existing.plannedEndTime),
+      },
+      dependencies,
+    );
+  }
 
   // Build audit entries for changed fields.
   // Uses Record cast because we're iterating dynamic keys — the type system

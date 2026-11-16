@@ -48,3 +48,21 @@ Logins (password `Demo@12345`): `priya@example.com` (developer, role user), `vik
 ## Not done yet
 - Attachments are stored on a Docker volume; next step is SharePoint via Microsoft Graph (same as the Quality System).
 - Dropdown values in `options.ts` are placeholders until the exact Jira values are confirmed.
+
+# Cutover planning rules + Timeline
+
+From the cutover tracker discussion: Excel forced a grid; the web app can model the real rules.
+
+| Rule | Behaviour |
+|---|---|
+| Tasks linked by a dependency | run one by one - never a clash |
+| Tasks with no dependency in the same time frame | run in **parallel** - allowed only with **different owners** (same person, or same team when no person is set on either = rejected with 409) |
+| Duration 0:00:00 | a **checkpoint** (e.g. Go / No-Go) - drawn as ◆ |
+| No end time | **N/A / no estimate** - allowed |
+| 24h or more (e.g. "get management approval") | **long-running / waiting** work - allowed, and does not block its owner |
+| End before start | rejected (400) |
+
+- Enforced in the backend (`backend/src/modules/cutover/rules.ts`) on task create/update, but **only when time, owner or dependencies change**, so the scheduler/worker's status updates are never blocked. Completed tasks are ignored.
+- The Tasks grid shows the error as a toast and reverts the edit; a read-only **Duration** column shows `0:00 checkpoint`, `45 min`, `2 d`, `1 wk`, `N/A`.
+- **Timeline** page (`/timeline`, also from a CR's cutover card): one lane per owner, parallel work side by side, zoom to the go-live day, click a task to see what it waits for / blocks / runs in parallel with, and any existing clashes highlighted. API: `GET /api/cutover/:projectId/timeline`.
+- Open question for review: should the same **team** with **different people** be allowed in parallel? Currently yes (only same person, or same team with no person set, clash).
