@@ -69,6 +69,10 @@ services:
       MICROSOFT_TENANT_ID: ${MICROSOFT_TENANT_ID:-common}
       MICROSOFT_REDIRECT_URI: ${MICROSOFT_REDIRECT_URI:-}
       TOKEN_ENCRYPTION_KEY: ${TOKEN_ENCRYPTION_KEY:-}
+      UPLOAD_DIR: /app/uploads
+      CR_APPROVER_ROLES: ${CR_APPROVER_ROLES:-admin}
+    volumes:
+      - uploads:/app/uploads
     depends_on:
       postgres:
         condition: service_healthy
@@ -156,6 +160,7 @@ services:
 volumes:
   pgdata:
   redisdata:
+  uploads:
 
 networks:
   tilli-go:

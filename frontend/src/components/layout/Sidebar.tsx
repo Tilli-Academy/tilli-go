@@ -5,6 +5,7 @@ import {
   LayoutGridIcon,
   LayersIcon,
   ListChecksIcon,
+  FlagIcon,
   UserIcon,
   LogOutIcon,
   ChevronLeftIcon,
@@ -20,6 +21,7 @@ interface NavItem {
 
 const navItems: NavItem[] = [
   { to: "/dashboard", label: "Dashboard", icon: LayoutGridIcon },
+  { to: "/change-requests", label: "Change Requests", icon: FlagIcon },
   { to: "/projects", label: "Projects", icon: LayersIcon },
   { to: "/tasks", label: "Tasks", icon: ListChecksIcon },
   { to: "/profile", label: "Profile", icon: UserIcon },

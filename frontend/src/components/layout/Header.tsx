@@ -9,6 +9,8 @@ const pageTitles: Record<string, string> = {
   "/tasks": "Task Management",
   "/projects": "Projects",
   "/profile": "Profile",
+  "/change-requests": "Change Requests",
+  "/change-requests/new": "New Change Request",
 };
 
 interface HeaderUser {
@@ -47,7 +49,9 @@ interface HeaderProps {
 
 export default function Header({ onToggleMobile }: HeaderProps) {
   const location = useLocation();
-  const title = pageTitles[location.pathname] || "Tilli-go";
+  const title =
+    pageTitles[location.pathname] ||
+    (location.pathname.startsWith("/change-requests/") ? "Change Request" : "Tilli-go");
   const { projects, selectedProjectId, setSelectedProjectId, projectsLoading } =
     useContext(ProjectContext);
 

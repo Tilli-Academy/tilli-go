@@ -40,7 +40,8 @@ RUN chmod +x /usr/local/bin/api-entrypoint.sh
 
 # Non-root user
 RUN addgroup -S appgroup && adduser -S appuser -G appgroup
-RUN chown -R appuser:appgroup /app
+# CR attachments live here (a named volume in docker-compose)
+RUN mkdir -p /app/uploads && chown -R appuser:appgroup /app
 USER appuser
 
 EXPOSE 3001

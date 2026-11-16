@@ -23,6 +23,10 @@ model User {
   createdAt           DateTime  @default(now()) @map("created_at")
   updatedAt           DateTime  @updatedAt @map("updated_at")
   tasks               Task[]    @relation("AssignedUser")
+  crAssigned          ChangeRequest[] @relation("CrAssignee")
+  crReported          ChangeRequest[] @relation("CrReporter")
+  crApproved          ChangeRequest[] @relation("CrApprover")
+  crEvents            ChangeEvent[]
 
   @@unique([oauthProvider, oauthId])
   @@map("users")
@@ -36,6 +40,7 @@ model Project {
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @updatedAt @map("updated_at")
   tasks       Task[]
+  changeRequests ChangeRequest[]
 
   @@map("projects")
 }
@@ -99,4 +104,77 @@ model AuditLog {
 
   @@index([taskId])
   @@map("audit_logs")
+}
+
+// ── Change Request module ───────────────────────────────────────────────────
+// A change request (CR / CAB request) tracks one change from idea to production.
+// Its optional cutover plan is an ordinary Tilli-go Project, so the existing
+// task grid, scheduler and email worker run the go-live unchanged.
+model ChangeRequest {
+  id            String    @id @default(uuid())
+  number        Int       @unique @default(autoincrement())
+  title         String
+  description   String    @db.Text
+  product       String
+  changeType    String    @map("change_type")
+  releaseType   String    @map("release_type")
+  priority      String
+  impact        String
+  risk          String
+  customer      String?
+  labels        String[]  @default([])
+  plannedGoLive DateTime  @map("planned_go_live")
+  dueDate       DateTime? @map("due_date")
+  needsCutover  Boolean   @default(true) @map("needs_cutover")
+  status        String    @default("NEW")
+  assigneeId    String    @map("assignee_id")
+  assignee      User      @relation("CrAssignee", fields: [assigneeId], references: [id])
+  reporterId    String    @map("reporter_id")
+  reporter      User      @relation("CrReporter", fields: [reporterId], references: [id])
+  approvedById  String?   @map("approved_by_id")
+  approvedBy    User?     @relation("CrApprover", fields: [approvedById], references: [id])
+  approvedAt    DateTime? @map("approved_at")
+  projectId     String?   @map("project_id")
+  project       Project?  @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+  events        ChangeEvent[]
+  attachments   ChangeAttachment[]
+
+  @@index([status])
+  @@index([product, plannedGoLive])
+  @@map("change_requests")
+}
+
+model ChangeEvent {
+  id              String        @id @default(uuid())
+  changeRequestId String        @map("change_request_id")
+  changeRequest   ChangeRequest @relation(fields: [changeRequestId], references: [id], onDelete: Cascade)
+  kind            String        // CREATED | STATUS | COMMENT | ATTACHMENT | CUTOVER
+  fromStatus      String?       @map("from_status")
+  toStatus        String?       @map("to_status")
+  message         String?       @db.Text
+  actorId         String        @map("actor_id")
+  actor           User          @relation(fields: [actorId], references: [id])
+  createdAt       DateTime      @default(now()) @map("created_at")
+
+  @@index([changeRequestId, createdAt])
+  @@map("change_events")
+}
+
+// Files are stored outside the database (disk now, SharePoint later); only metadata lives here.
+model ChangeAttachment {
+  id              String        @id @default(uuid())
+  changeRequestId String        @map("change_request_id")
+  changeRequest   ChangeRequest @relation(fields: [changeRequestId], references: [id], onDelete: Cascade)
+  fileName        String        @map("file_name")
+  mimeType        String        @map("mime_type")
+  size            Int
+  provider        String        // local | sharepoint
+  storageKey      String        @map("storage_key")
+  uploadedById    String        @map("uploaded_by_id")
+  createdAt       DateTime      @default(now()) @map("created_at")
+
+  @@index([changeRequestId])
+  @@map("change_attachments")
 }

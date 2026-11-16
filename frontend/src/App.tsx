@@ -12,6 +12,9 @@ import Profile from './components/profile/Profile';
 import Projects from './components/projects/Projects';
 import AcknowledgePage from './components/acknowledge/AcknowledgePage';
 import CompletePage from './components/acknowledge/CompletePage';
+import ChangeRequestList from './modules/changeRequests/ChangeRequestList';
+import NewChangeRequest from './modules/changeRequests/NewChangeRequest';
+import ChangeRequestDetail from './modules/changeRequests/ChangeRequestDetail';
 import ErrorBoundary from './components/ui/ErrorBoundary';
 import ToastContainer from './components/ui/Toast';
 import { projectService } from './services/projectService';
@@ -118,6 +121,9 @@ function App() {
             <Route element={<ProtectedRoute />}>
               <Route element={<MainLayout />}>
                 <Route path="/dashboard" element={<Dashboard />} />
+                <Route path="/change-requests" element={<ChangeRequestList />} />
+                <Route path="/change-requests/new" element={<NewChangeRequest />} />
+                <Route path="/change-requests/:id" element={<ChangeRequestDetail />} />
                 <Route path="/tasks" element={<TaskGrid />} />
                 <Route path="/projects" element={<Projects />} />
                 <Route path="/profile" element={<Profile />} />
