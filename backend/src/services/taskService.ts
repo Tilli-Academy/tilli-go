@@ -3,7 +3,7 @@ import prisma from '../config/prisma';
 import logger from '../config/logger';
 import { AppError } from '../utils/errors';
 import { assertNoOwnerClash } from '../modules/cutover/rules';
-import { setDependencies, assertDependenciesMet } from './dependencyService';
+import { assertDependenciesMet, validateDependencies, writeDependencies } from './dependencyService';
 import {
   TASK_INCLUDE,
   ALLOWED_TRANSITIONS,
@@ -17,7 +17,6 @@ import type {
   TaskResponse,
   TaskWithIncludes,
   PaginatedResponse,
-  AuditAction,
   CreateAuditLogEntry,
   CreateTaskOptions,
   UpdateTaskOptions,
@@ -40,19 +39,6 @@ function validateStatusTransition(current: string, next: string): void {
   if (!allowed || !allowed.has(next as TaskStatus)) {
     throw new AppError(`Invalid status transition: ${current} -> ${next}`, 400);
   }
-}
-
-async function writeAuditLog(
-  taskId: string,
-  action: AuditAction,
-  field: string | null,
-  oldValue: string | null,
-  newValue: string | null,
-  userId: string | null = null,
-): Promise<void> {
-  await prisma.auditLog.create({
-    data: { taskId, action, field, oldValue, newValue, userId },
-  });
 }
 
 // ── List ────────────────────────────────────────────────────────────────────
@@ -124,6 +110,9 @@ async function create(data: CreateTaskDTO, opts: CreateTaskOptions = {}): Promis
     throw new AppError('Project not found', 404);
   }
 
+  // Check dependencies before anything is saved (a bad list used to leave a half-made task).
+  const deps = dependencies ? await validateDependencies(null, taskData.projectId, dependencies) : [];
+
   // Cutover planning rules: end >= start, and parallel tasks need different owners.
   await assertNoOwnerClash(
     {
@@ -148,29 +137,21 @@ async function create(data: CreateTaskDTO, opts: CreateTaskOptions = {}): Promis
 
     const nextSeq = (lastTask?.sequenceNumber ?? 0) + 1;
 
-    return tx.task.create({
+    const created = await tx.task.create({
       data: {
         ...taskData,
         sequenceNumber: nextSeq,
       },
-      include: TASK_INCLUDE,
     });
+    await tx.auditLog.create({ data: { taskId: created.id, action: 'CREATED', userId } });
+    if (deps.length > 0) {
+      await writeDependencies(tx, created.id, deps);
+      await tx.auditLog.create({
+        data: { taskId: created.id, action: 'UPDATED', field: 'dependencies', newValue: deps.join(','), userId },
+      });
+    }
+    return tx.task.findUniqueOrThrow({ where: { id: created.id }, include: TASK_INCLUDE });
   });
-
-  await writeAuditLog(task.id, 'CREATED', null, null, null, userId);
-
-  if (dependencies && dependencies.length > 0) {
-    await setDependencies(task.id, dependencies);
-    await writeAuditLog(
-      task.id,
-      'UPDATED',
-      'dependencies',
-      null,
-      dependencies.join(','),
-      userId,
-    );
-    return getById(task.id);
-  }
 
   return formatTask(task as TaskWithIncludes);
 }
@@ -216,6 +197,16 @@ async function update(id: string, data: UpdateTaskDTO, opts: UpdateTaskOptions =
 
   const userId = opts.userId ?? null;
 
+  // Changing only the start moves the whole task: the end shifts by the same amount
+  // (the grid sends one field per edit, so "start later" used to fail "end before start").
+  if (taskFields.plannedStartTime && !('plannedEndTime' in taskFields) && existing.plannedStartTime && existing.plannedEndTime) {
+    const durationMs = existing.plannedEndTime.getTime() - existing.plannedStartTime.getTime();
+    taskFields.plannedEndTime = new Date(new Date(taskFields.plannedStartTime).getTime() + durationMs);
+  }
+
+  // Check dependencies before the clash check trusts them, and before anything is saved.
+  const deps = dependencies !== undefined ? await validateDependencies(id, existing.projectId, dependencies) : undefined;
+
   // Cutover planning rules - only when the schedule, owner or dependencies change,
   // so status-only updates from the scheduler/worker are never blocked.
   const PLAN_FIELDS = ['plannedStartTime', 'plannedEndTime', 'assignedUserId', 'assignedTeam'] as const;
@@ -233,7 +224,7 @@ async function update(id: string, data: UpdateTaskDTO, opts: UpdateTaskOptions =
         plannedStartTime: pick(taskFields.plannedStartTime, existing.plannedStartTime),
         plannedEndTime: pick(taskFields.plannedEndTime, existing.plannedEndTime),
       },
-      dependencies,
+      deps,
     );
   }
 
@@ -258,41 +249,34 @@ async function update(id: string, data: UpdateTaskDTO, opts: UpdateTaskOptions =
     }
   }
 
-  // Apply update + audit in a transaction, returning the updated task
+  // Fields, dependencies and audit are saved together: if any part fails, nothing is saved.
+  const oldDeps = (existing as TaskWithIncludes).dependsOn.map((d) => d.dependsOnTaskId).sort();
+  const newDeps = deps ? [...deps].sort() : oldDeps;
+  const depsChanged = deps !== undefined && (oldDeps.length !== newDeps.length || oldDeps.some((v, i) => v !== newDeps[i]));
+  if (depsChanged) {
+    auditEntries.push({
+      taskId: id,
+      action: 'UPDATED',
+      field: 'dependencies',
+      oldValue: oldDeps.join(',') || null,
+      newValue: newDeps.join(',') || null,
+      userId,
+    });
+  }
   const hasFieldUpdates = Object.keys(taskFields).length > 0;
 
   const updatedTask = await prisma.$transaction(async (tx) => {
     if (hasFieldUpdates) {
       await tx.task.update({ where: { id }, data: taskFields as Prisma.TaskUpdateInput });
     }
+    if (depsChanged) {
+      await writeDependencies(tx, id, newDeps);
+    }
     if (auditEntries.length > 0) {
       await tx.auditLog.createMany({ data: auditEntries });
     }
     return tx.task.findUnique({ where: { id }, include: TASK_INCLUDE });
   });
-
-  // Handle dependency changes outside the transaction (has its own)
-  if (dependencies !== undefined) {
-    const oldDeps = (existing as TaskWithIncludes).dependsOn.map((d) => d.dependsOnTaskId).sort();
-    const newDeps = [...dependencies].sort();
-    const changed =
-      oldDeps.length !== newDeps.length ||
-      oldDeps.some((v, i) => v !== newDeps[i]);
-
-    if (changed) {
-      await setDependencies(id, dependencies);
-      await writeAuditLog(
-        id,
-        'UPDATED',
-        'dependencies',
-        oldDeps.join(',') || null,
-        newDeps.join(',') || null,
-        userId,
-      );
-      // Dependencies changed — need fresh data with updated dependsOn
-      return getById(id);
-    }
-  }
 
   return formatTask(updatedTask as TaskWithIncludes);
 }

@@ -114,7 +114,7 @@ export async function sendMailInternal(
   replyTo?: string,
 ): Promise<EmailResult> {
   if (config.microsoft.mailEnabled) {
-    const messageId = await sendEmailViaGraph(to, subject, html);
+    const messageId = await sendEmailViaGraph(to, subject, html, replyTo);
     return { messageId };
   }
 

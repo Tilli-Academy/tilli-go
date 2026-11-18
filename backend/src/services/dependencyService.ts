@@ -1,3 +1,4 @@
+import type { Prisma } from '@prisma/client';
 import prisma from '../config/prisma';
 import { AppError } from '../utils/errors';
 import { TaskStatus } from '../types';
@@ -219,58 +220,51 @@ export async function validateDependenciesExist(dependencyIds: string[]): Promis
 // Replace all dependencies for a task with a new set.
 // Validates: existence, self-reference, circular reference, same project.
 
-export async function setDependencies(taskId: string, dependencyIds: string[]): Promise<void> {
+/**
+ * Check a dependency list before anything is saved: no self-dependency, every
+ * task exists, all in the same project, and no cycle. `taskId` is null for a
+ * task that doesn't exist yet (nothing can depend on it, so no cycle check).
+ */
+export async function validateDependencies(taskId: string | null, projectId: string, dependencyIds: string[]): Promise<string[]> {
   const unique = [...new Set(dependencyIds)];
-
-  // Self-dependency check
-  if (unique.includes(taskId)) {
+  if (taskId && unique.includes(taskId)) {
     throw new AppError('A task cannot depend on itself', 400);
   }
+  if (unique.length === 0) return unique;
 
-  if (unique.length > 0) {
-    // Fetch the task and all dependency tasks in parallel (2 queries instead of 3)
-    const [task, depTasks] = await Promise.all([
-      prisma.task.findUnique({
-        where: { id: taskId },
-        select: { projectId: true },
-      }),
-      prisma.task.findMany({
-        where: { id: { in: unique } },
-        select: { id: true, projectId: true },
-      }),
-    ]);
-
-    if (!task) {
-      throw new AppError('Task not found', 404);
-    }
-
-    // Validate all dependency tasks exist
-    if (depTasks.length !== unique.length) {
-      const foundIds = new Set(depTasks.map((t) => t.id));
-      const missing = unique.filter((id) => !foundIds.has(id));
-      throw new AppError(`Dependency tasks not found: ${missing.join(', ')}`, 400);
-    }
-
-    // Cross-project check
-    for (const dep of depTasks) {
-      if (dep.projectId !== task.projectId) {
-        throw new AppError('Cross-project dependencies are not allowed', 400);
-      }
-    }
-
-    if (await wouldCreateCycle(taskId, unique)) {
-      throw new AppError('Circular dependency detected', 400);
-    }
+  const depTasks = await prisma.task.findMany({
+    where: { id: { in: unique } },
+    select: { id: true, projectId: true },
+  });
+  if (depTasks.length !== unique.length) {
+    const foundIds = new Set(depTasks.map((t) => t.id));
+    const missing = unique.filter((id) => !foundIds.has(id));
+    throw new AppError(`Dependency tasks not found: ${missing.join(', ')}`, 400);
   }
+  if (depTasks.some((dep) => dep.projectId !== projectId)) {
+    throw new AppError('Cross-project dependencies are not allowed', 400);
+  }
+  if (taskId && (await wouldCreateCycle(taskId, unique))) {
+    throw new AppError('Circular dependency detected', 400);
+  }
+  return unique;
+}
 
-  await prisma.$transaction([
-    prisma.taskDependency.deleteMany({ where: { taskId } }),
-    ...unique.map((depId) =>
-      prisma.taskDependency.create({
-        data: { taskId, dependsOnTaskId: depId },
-      })
-    ),
-  ]);
+/** Replace a task's dependencies inside the caller's transaction (validate first). */
+export async function writeDependencies(tx: Prisma.TransactionClient, taskId: string, dependencyIds: string[]): Promise<void> {
+  await tx.taskDependency.deleteMany({ where: { taskId } });
+  if (dependencyIds.length > 0) {
+    await tx.taskDependency.createMany({ data: dependencyIds.map((depId) => ({ taskId, dependsOnTaskId: depId })) });
+  }
+}
+
+export async function setDependencies(taskId: string, dependencyIds: string[]): Promise<void> {
+  const task = await prisma.task.findUnique({ where: { id: taskId }, select: { projectId: true } });
+  if (!task) {
+    throw new AppError('Task not found', 404);
+  }
+  const unique = await validateDependencies(taskId, task.projectId, dependencyIds);
+  await prisma.$transaction((tx) => writeDependencies(tx, taskId, unique));
 }
 
 // ── getDependers ────────────────────────────────────────────────────────────

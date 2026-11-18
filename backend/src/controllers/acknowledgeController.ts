@@ -30,12 +30,22 @@ function checkToken(taskId: string | undefined, token: string | undefined): { da
  * Acknowledge a Triggered task: Triggered → Acknowledged, records the real start
  * time, marks the start-time alert as acknowledged. Safe to call twice.
  */
+/** A link names the owner it was sent to; after a reassignment only the new owner's link works. */
+function ownerMismatch(tokenData: AckTokenData, assignedUserId: string | null): Outcome | null {
+  if (tokenData.uid && tokenData.uid !== assignedUserId) {
+    return { status: 403, body: { error: 'This link was sent to a previous owner of the task' } };
+  }
+  return null;
+}
+
 async function acknowledgeTask(taskId: string, tokenData: AckTokenData): Promise<Outcome> {
   const task = await prisma.task.findUnique({
     where: { id: taskId },
-    select: { id: true, status: true, taskName: true, actualStartTime: true },
+    select: { id: true, status: true, taskName: true, actualStartTime: true, assignedUserId: true },
   });
   if (!task) return { status: 404, body: { error: 'Task not found' } };
+  const notOwner = ownerMismatch(tokenData, task.assignedUserId);
+  if (notOwner) return notOwner;
 
   if (task.status === 'Acknowledged' || task.status === 'Completed') {
     const body: AcknowledgeSuccessResponse = {
@@ -103,12 +113,6 @@ export const acknowledgePost = async (req: Request, res: Response, next: NextFun
   }
 };
 
-/**
- * GET /api/acknowledge — kept for links in emails sent before the confirm page
- * existed. New emails open the confirm page, which only reads (preview) until
- * the owner clicks.
- */
-export const acknowledge = acknowledgePost;
 
 /**
  * GET /api/acknowledge/preview — read-only details for the confirm page.
@@ -117,12 +121,13 @@ export const acknowledge = acknowledgePost;
 export const preview = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
     const { taskId, token } = readParams(req);
-    const { fail } = checkToken(taskId, token);
+    const { data: tokenData, fail } = checkToken(taskId, token);
     if (fail) { res.status(fail.status).json(fail.body); return; }
 
     const task = await prisma.task.findUnique({
       where: { id: taskId },
       select: {
+        assignedUserId: true,
         id: true, sequenceNumber: true, taskName: true, system: true, assignedTeam: true, status: true,
         plannedStartTime: true, plannedEndTime: true, actualStartTime: true, notes: true, description: true,
         assignedUser: { select: { name: true } },
@@ -134,8 +139,10 @@ export const preview = async (req: Request, res: Response, next: NextFunction): 
       },
     });
     if (!task) { res.status(404).json({ error: 'Task not found' }); return; }
+    const notOwner = ownerMismatch(tokenData!, task.assignedUserId);
+    if (notOwner) { res.status(notOwner.status).json(notOwner.body); return; }
 
-    const { dependsOn, project, ...rest } = task;
+    const { dependsOn, project, assignedUserId: _owner, ...rest } = task;
     res.json({
       ...rest,
       code: `${project.code}-${task.sequenceNumber}`,

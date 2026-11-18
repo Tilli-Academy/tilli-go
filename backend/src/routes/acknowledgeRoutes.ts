@@ -12,7 +12,8 @@ const limit = () => rateLimiter({ windowMs: 60_000, max: 15, keyPrefix: 'rl:ack'
 router.get('/preview', limit(), acknowledgeController.preview);
 // The owner clicked "Acknowledge & start".
 router.post('/', limit(), acknowledgeController.acknowledgePost);
-// Older emails linked here directly; still works.
-router.get('/', limit(), acknowledgeController.acknowledge);
+// A plain GET (email scanners, link previews) must never change anything, so it
+// only returns the same read-only details as /preview. Acknowledging is POST only.
+router.get('/', limit(), acknowledgeController.preview);
 
 export = router;

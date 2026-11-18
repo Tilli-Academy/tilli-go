@@ -158,16 +158,12 @@ async function sendStartAlert(job: Job<EmailJobPayload>, log: typeof logger): Pr
 
   const attempt = job.attemptsMade + 1;
   const maxAttempts = job.opts.attempts ?? 1;
+  let messageId: string;
   try {
     const { subject, html } = buildStartAlert(task);
-    const result = await sendMailInternal(to, subject, html, 'START-TIME ALERT SENT', config.alerts.replyTo);
-    await recordAlert(taskId, {
-      status: 'SENT', recipient: to, sentAt: new Date(), attempts: attempt, lastError: null, messageId: result.messageId,
-    });
-    await audit(taskId, 'EMAIL_SENT', `to=${to} attempt=${attempt} messageId=${result.messageId}`);
-    log.info({ messageId: result.messageId, to }, 'Start-time alert sent');
-    return { status: 'sent', messageId: result.messageId };
+    messageId = (await sendMailInternal(to, subject, html, 'START-TIME ALERT SENT', config.alerts.replyTo)).messageId;
   } catch (err: unknown) {
+    // Only a failed SEND is retried.
     const message = err instanceof Error ? err.message : String(err);
     const final = attempt >= maxAttempts;
     await recordAlert(taskId, { status: final ? 'FAILED' : 'RETRYING', recipient: to, attempts: attempt, lastError: message.slice(0, 500) });
@@ -175,6 +171,17 @@ async function sendStartAlert(job: Job<EmailJobPayload>, log: typeof logger): Pr
     if (final) await tellManager(task, 'failed', message.slice(0, 200));
     throw err;
   }
+
+  // The email is out. If saving that fails, log it but don't throw: a retry would
+  // send the same email again (and later report a delivery failure that didn't happen).
+  try {
+    await recordAlert(taskId, { status: 'SENT', recipient: to, sentAt: new Date(), attempts: attempt, lastError: null, messageId });
+  } catch (err: unknown) {
+    log.error({ err: err instanceof Error ? err.message : String(err), messageId, to }, 'Alert sent but its status could not be saved — not retrying');
+  }
+  await audit(taskId, 'EMAIL_SENT', `to=${to} attempt=${attempt} messageId=${messageId}`);
+  log.info({ messageId, to }, 'Start-time alert sent');
+  return { status: 'sent', messageId };
 }
 
 export = processor;
