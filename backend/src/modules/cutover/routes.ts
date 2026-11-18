@@ -17,7 +17,7 @@ router.get('/:projectId/timeline', async (req, res, next) => {
     const plan: PlanTask[] = tasks.map((t) => ({ ...t, ownerName: t.assignedUser?.name ?? t.assignedTeam }));
     const clashes = findClashes(plan, edges).map((c) => ({ a: c.a.id, b: c.b.id }));
     res.json({
-      project: { id: project.id, code: project.code, name: project.name, startAlertsEnabled: project.startAlertsEnabled },
+      project: { id: project.id, code: project.code, name: project.name, startAlertsEnabled: project.startAlertsEnabled, timeZone: project.timeZone },
       tasks: tasks.map((t) => ({ ...t, durationKind: durationKind(t) })),
       dependencies: deps,
       clashes,

@@ -43,6 +43,9 @@ model Project {
   changeRequests     ChangeRequest[]
   // Start-time alerts: email owners when their task is ready. New projects start Off.
   startAlertsEnabled Boolean         @default(false) @map("start_alerts_enabled")
+  // IANA zone the cutover runs in. Emails, the acknowledge page and the Timeline show
+  // times in this zone with UTC alongside.
+  timeZone           String          @default("America/Chicago") @map("time_zone")
 
   @@map("projects")
 }

@@ -95,6 +95,20 @@ export async function addCompletionJob(task: TaskJobInput): Promise<void> {
   logger.info({ jobId, taskId: task.id }, 'Completion job enqueued');
 }
 
+/**
+ * A due task has no owner: the worker keeps it Pending and tells Release Management.
+ * One job per task (deterministic jobId); the worker also skips if it already told them.
+ */
+export async function addNoOwnerJob(task: TaskJobInput): Promise<void> {
+  const jobId = `task-no-owner-${task.id}`;
+  await taskQueue.add(
+    'process-no-owner',
+    { taskId: task.id, taskName: task.taskName, system: task.system, assignedTeam: task.assignedTeam, assignedUserId: null },
+    { jobId, attempts: 3, backoff: { type: 'exponential', delay: 5000 }, removeOnComplete: { age: 86400 }, removeOnFail: { age: 7 * 86400 } },
+  );
+  logger.info({ jobId, taskId: task.id }, 'No-owner job enqueued');
+}
+
 export async function close(): Promise<void> {
   await taskQueue.close();
   await emailQueue.close();

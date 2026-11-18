@@ -12,7 +12,6 @@ interface WorkerConfig {
     domain: string;
     fromAddress: string | null;
     fromName: string;
-    fallbackTeam: string;
   };
   microsoft: {
     mailEnabled: boolean;
@@ -24,7 +23,6 @@ interface WorkerConfig {
   alerts: {
     replyTo: string;
     releaseManager: string;
-    timeZone: string;
     allowedDomains: string[];
   };
   frontendUrl: string;
@@ -67,7 +65,6 @@ const config: WorkerConfig = {
     domain: process.env.EMAIL_DOMAIN || 'tilli.pro',
     fromAddress: process.env.EMAIL_FROM_ADDRESS || null,
     fromName: process.env.EMAIL_FROM_NAME || 'Tilli-go',
-    fallbackTeam: process.env.EMAIL_FALLBACK_TEAM || 'ops',
   },
   microsoft: {
     mailEnabled: process.env.MICROSOFT_MAIL_ENABLED === 'true',
@@ -76,12 +73,12 @@ const config: WorkerConfig = {
     tenantId: process.env.MICROSOFT_TENANT_ID || '',
     mailFrom: process.env.MICROSOFT_MAIL_FROM || '',
   },
-  // Start-time alerts. Keep in sync with backend/src/modules/alerts/settings.ts.
+  // Start-time alerts. The API shows these by reading what the worker publishes
+  // (see services/mailSettings.ts), so they are defined only here.
   alerts: {
     replyTo: process.env.ALERT_REPLY_TO || `release-management@${process.env.EMAIL_DOMAIN || 'tilli.pro'}`,
     releaseManager:
       process.env.ALERT_RELEASE_MANAGER_EMAIL || `release-management@${process.env.EMAIL_DOMAIN || 'tilli.pro'}`,
-    timeZone: process.env.ALERT_TIMEZONE || 'Asia/Kolkata',
     allowedDomains: (process.env.ALERT_ALLOWED_DOMAINS || process.env.EMAIL_DOMAIN || 'tilli.pro')
       .split(',')
       .map((d) => d.trim().toLowerCase())

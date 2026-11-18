@@ -2,8 +2,8 @@ import { Router } from 'express';
 import auth from '../../middleware/auth';
 import prisma from '../../config/prisma';
 import { AppError } from '../../utils/errors';
-import { canApprove } from '../changeRequests/workflow';
-import { alertSettings } from './settings';
+import { hasPermission } from '../auth/permissions';
+import { alertSettings, readMailSettings } from './settings';
 import { resetLivePlan } from './livePlan';
 
 // Start-time alerts: per-project switch, alert status per task, activity feed.
@@ -17,11 +17,11 @@ router.get('/projects/:projectId', async (req, res, next) => {
   try {
     const project = await prisma.project.findUnique({
       where: { id: req.params.projectId },
-      select: { id: true, code: true, name: true, startAlertsEnabled: true },
+      select: { id: true, code: true, name: true, startAlertsEnabled: true, timeZone: true },
     });
     if (!project) throw new AppError('Project not found', 404);
 
-    const [tasks, events] = await Promise.all([
+    const [tasks, events, mail] = await Promise.all([
       prisma.task.findMany({
         where: { projectId: project.id },
         select: {
@@ -42,6 +42,7 @@ router.get('/projects/:projectId', async (req, res, next) => {
         orderBy: { createdAt: 'desc' },
         take: 40,
       }),
+      readMailSettings(),
     ]);
 
     const counts: Record<string, number> = {};
@@ -49,14 +50,15 @@ router.get('/projects/:projectId', async (req, res, next) => {
 
     res.json({
       project,
-      canManage: canApprove(req.user!.role),
-      demoTools: alertSettings.demoTools && canApprove(req.user!.role),
-      settings: {
-        fromAddress: alertSettings.fromAddress,
-        replyTo: alertSettings.replyTo,
-        timeZone: alertSettings.timeZone,
-        allowedDomains: alertSettings.allowedDomains,
+      canManage: hasPermission(req.user!, 'cr.decide'),
+      demoTools: alertSettings.demoTools && hasPermission(req.user!, 'cr.decide'),
+      // What the worker really uses (null if the worker isn't running yet).
+      settings: mail && {
+        fromAddress: mail.fromAddress,
+        replyTo: mail.replyTo,
+        allowedDomains: mail.allowedDomains,
       },
+      timeZone: project.timeZone,
       counts,
       tasks: tasks.map((t) => ({ ...t, code: `${project.code}-${t.sequenceNumber}` })),
       events: events.map((e) => ({
@@ -77,7 +79,7 @@ router.get('/projects/:projectId', async (req, res, next) => {
 
 router.patch('/projects/:projectId', async (req, res, next) => {
   try {
-    if (!canApprove(req.user!.role)) {
+    if (!hasPermission(req.user!, 'cr.decide')) {
       throw new AppError('Only release managers can switch start-time alerts on or off', 403);
     }
     if (typeof req.body?.enabled !== 'boolean') throw new AppError('enabled must be true or false', 400);
@@ -97,7 +99,7 @@ router.patch('/projects/:projectId', async (req, res, next) => {
 router.post('/demo/live-plan', async (req, res, next) => {
   try {
     if (!alertSettings.demoTools) throw new AppError('Not found', 404);
-    if (!canApprove(req.user!.role)) throw new AppError('Only release managers can do this', 403);
+    if (!hasPermission(req.user!, 'cr.decide')) throw new AppError('Only release managers can do this', 403);
     const project = await resetLivePlan();
     res.status(201).json(project);
   } catch (err) {

@@ -41,7 +41,8 @@ New code lives in `backend/src/modules/changeRequests/` and `frontend/src/module
 
 ## Demo data
 ```bash
-cd backend && DATABASE_URL=... npm run db:seed:cr   # safe to re-run
+cd backend && DATABASE_URL=... npm run db:seed:cr   # safe to re-run (from a checkout with dev dependencies)
+docker compose exec api npm run db:seed:cr:built    # the same, inside the running API container
 ```
 Logins (password `Demo@12345`): `priya@example.com` (developer, role user), `vikram@example.com` / `anita@example.com` (approvers, role admin).
 
@@ -56,7 +57,7 @@ From the cutover tracker discussion: Excel forced a grid; the web app can model 
 | Rule | Behaviour |
 |---|---|
 | Tasks linked by a dependency | run one by one - never a clash |
-| Tasks with no dependency in the same time frame | run in **parallel** - allowed only with **different owners** (same person, or same team when no person is set on either = rejected with 409) |
+| Tasks with no dependency in the same time frame | run in **parallel** - allowed only with **different people** (same person = rejected with 409; team text is not compared) |
 | Duration 0:00:00 | a **checkpoint** (e.g. Go / No-Go) - drawn as ◆ |
 | No end time | **N/A / no estimate** - allowed |
 | 24h or more (e.g. "get management approval") | **long-running / waiting** work - allowed, and does not block its owner |
@@ -65,17 +66,17 @@ From the cutover tracker discussion: Excel forced a grid; the web app can model 
 - Enforced in the backend (`backend/src/modules/cutover/rules.ts`) on task create/update, but **only when time, owner or dependencies change**, so the scheduler/worker's status updates are never blocked. Completed tasks are ignored.
 - The Tasks grid shows the error as a toast and reverts the edit; a read-only **Duration** column shows `0:00 checkpoint`, `45 min`, `2 d`, `1 wk`, `N/A`.
 - **Timeline** page (`/timeline`, also from a CR's cutover card): one lane per owner, parallel work side by side, zoom to the go-live day, click a task to see what it waits for / blocks / runs in parallel with, and any existing clashes highlighted. API: `GET /api/cutover/:projectId/timeline`.
-- Open question for review: should the same **team** with **different people** be allowed in parallel? Currently yes (only same person, or same team with no person set, clash).
+- Two different people from the same team can work in parallel (reviewer decision).
 
 # Start-time alerts
-Built from the "DeployFlow · Start-time alerts" mockup (first-release scope: phases 0–2).
+Built from the start-time alerts mockup (first-release scope: phases 0–2).
 
 When a task's **planned start arrives** and **everything before it is Completed**, the worker emails the owner "your task is ready to start now". The owner confirms with one click.
 
 | Case | What happens | Alert status |
 |---|---|---|
-| Owner has a company address | Email from the DeployFlow mailbox, reply-to Release Management, times in IST and UTC, earlier steps listed, **Acknowledge & start** button | `SENT` → `ACKNOWLEDGED` |
-| No owner set | Never guesses an address — Release Management is emailed instead | `NO_OWNER` |
+| Owner has a company address | Email from the Tilli-go mailbox, reply-to Release Management, times in the project's timezone and UTC, earlier steps listed, **Acknowledge & start** button | `SENT` → `ACKNOWLEDGED` |
+| No owner set | The task **does not start**: it stays Pending (on hold) and Release Management is emailed once. It starts on the next scheduler run after someone is assigned. The API also refuses to move a task with no owner to Triggered/Acknowledged. | `NO_OWNER` |
 | Owner address outside `ALERT_ALLOWED_DOMAINS` | Not sent — Release Management is emailed | `BLOCKED_DOMAIN` |
 | Send fails | BullMQ retries (5 attempts); after the last one Release Management is told | `RETRYING` → `FAILED` |
 | Due, but an earlier step isn't done | Task goes `Blocked`; alert goes out as soon as it is released | — |
@@ -85,10 +86,12 @@ When a task's **planned start arrives** and **everything before it is Completed*
 - **One click to confirm**: the email link opens `/#/acknowledge`, which only *reads* (`GET /api/acknowledge/preview`). Nothing changes until the owner clicks (`POST /api/acknowledge`), so email link scanners can't acknowledge by accident. The link is signed for that task and owner and expires 12 h after the planned end. A plain `GET /api/acknowledge` is read-only too. After the task is reassigned, the previous owner's link is refused (403).
 - **Where to see it**: Timeline page → *Start-time alerts* panel (switch, counts, per-task alert status, alert history, refreshes every 10 s); task panel on the Timeline; *Start-time alert* column in the Tasks grid.
 - API: `GET/PATCH /api/alerts/projects/:projectId`. Code: `worker/src/services/alertEmail.ts`, `worker/src/processors/emailProcessor.ts`, `backend/src/modules/alerts/`.
-- Settings (api + worker): `ALERT_ALLOWED_DOMAINS` (default `EMAIL_DOMAIN`), `ALERT_RELEASE_MANAGER_EMAIL`, `ALERT_REPLY_TO` (default `release-management@EMAIL_DOMAIN`), `ALERT_TIMEZONE` (default `Asia/Kolkata`), `EMAIL_FROM_ADDRESS`.
+- **Timezone per project** (`projects.time_zone`, IANA name, default `America/Chicago`). The email, the acknowledge page and the Timeline show times in that zone with UTC alongside. Set it on create (`timeZone`) or with `PATCH /api/projects/:id`.
+- Settings (worker only — it is the one that sends): `ALERT_ALLOWED_DOMAINS` (default `EMAIL_DOMAIN`), `ALERT_RELEASE_MANAGER_EMAIL`, `ALERT_REPLY_TO` (default `release-management@EMAIL_DOMAIN`), `EMAIL_FROM_ADDRESS` (default `noreply@EMAIL_DOMAIN`; with Microsoft 365 the sender is `MICROSOFT_MAIL_FROM`). The worker publishes the values it really uses to Redis and the alerts panel shows those, so the UI always matches the real sender.
 - Not in this release (mockup "planned enhancement" / "later"): reminder + lead escalation after 10 min, "due but waiting" warning email, Microsoft 365 / Teams delivery.
 
 ## Live demo
 - `DEMO_TOOLS=true` shows **▶ Start live rehearsal** on the alerts panel (release managers only). It rebuilds project `LIVE` timed from *now*: within ~2 minutes one owner is emailed, one task has no owner, one owner is outside the company, and one waits on `LIVE-1` — mark `LIVE-1` Completed to release it. **↻ Check now** runs the scheduler immediately instead of waiting for the next minute.
 - Real emails without a real mailbox: start with `--profile mail` and set `SMTP_HOST=mailpit SMTP_PORT=1025 SMTP_USER=demo SMTP_PASS=demo`. Every email lands in the Mailpit inbox (`MAILPIT_PORT`, default 8025) and never leaves the machine.
+- **Demo users are `@example.com`.** To see owner emails (instead of everything going to Release Management) set `ALERT_ALLOWED_DOMAINS=tilli.pro,example.com` for the demo. The seed deliberately doesn't use the company domain, so a demo can never email a real colleague.
 

@@ -1,4 +1,5 @@
 import { useContext, useEffect, useMemo, useState } from 'react';
+import { dayIn, dayKeyIn, startOfDayIn, timeIn, whenWithUtc, zoneLabel, zoneOffsetMs } from '../../utils/zoneTime';
 import { ProjectContext } from '../../App';
 import api, { getErrorMessage } from '../../services/api';
 import { durationKind, formatDuration, type DurationKind } from './duration';
@@ -18,7 +19,7 @@ interface TTask {
   alert: TaskAlertInfo | null;
 }
 interface TimelineData {
-  project: { id: string; code: string; name: string; startAlertsEnabled: boolean };
+  project: { id: string; code: string; name: string; startAlertsEnabled: boolean; timeZone: string };
   tasks: TTask[];
   dependencies: { taskId: string; dependsOnTaskId: string }[];
   clashes: { a: string; b: string }[];
@@ -36,9 +37,6 @@ const STEPS = [15, 30, 60, 120, 180, 360, 720, 1440, 2880, 10080].map((m) => m *
 
 const owner = (t: TTask) => t.assignedUser?.name ?? t.assignedTeam ?? 'Unassigned';
 const ms = (s: string) => new Date(s).getTime();
-const dayKey = (n: number) => new Date(n).toLocaleDateString('en-CA');
-const fmtTime = (n: number) => new Date(n).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
-const fmtDay = (n: number) => new Date(n).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
 
 function visualSpan(t: TTask): [number, number] {
   const s = ms(t.plannedStartTime!);
@@ -117,7 +115,8 @@ export default function Timeline() {
     // Multi-day (waiting) tasks would squash the go-live window, so zoom ranges ignore them.
     const focus = scheduled.filter((t) => durationKind(t.plannedStartTime, t.plannedEndTime) !== 'long-running');
     const days = new Map<string, number>();
-    for (const t of focus.length ? focus : scheduled) days.set(dayKey(ms(t.plannedStartTime!)), (days.get(dayKey(ms(t.plannedStartTime!))) ?? 0) + 1);
+    const tz = data.project.timeZone;
+    for (const t of focus.length ? focus : scheduled) days.set(dayKeyIn(t.plannedStartTime!, tz), (days.get(dayKeyIn(t.plannedStartTime!, tz)) ?? 0) + 1);
     const busiestDay = [...days.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0]?.[0] ?? 'all';
     const lo = Math.min(...scheduled.map((t) => visualSpan(t)[0]));
     const hi = Math.max(...scheduled.map((t) => visualSpan(t)[1]));
@@ -130,12 +129,13 @@ export default function Timeline() {
   if (model.scheduled.length === 0) return <Empty text="No scheduled tasks yet. Give tasks a planned start in the Tasks grid." />;
 
   // visible window: default = the go-live day (busiest day)
+  const tz = data.project.timeZone;
   const view = range || model.busiestDay;
   let from = model.lo, to = model.hi;
   if (view !== 'all') {
-    const dayStart = new Date(`${view}T00:00:00`).getTime();
+    const dayStart = startOfDayIn(view, tz);
     const pool = model.focus.length ? model.focus : model.scheduled;
-    const inDay = pool.filter((t) => dayKey(ms(t.plannedStartTime!)) === view).map(visualSpan);
+    const inDay = pool.filter((t) => dayKeyIn(t.plannedStartTime!, tz) === view).map(visualSpan);
     from = Math.min(...inDay.map(([s]) => s), dayStart + 86400000);
     to = Math.max(...inDay.map(([, e]) => e), from + 60 * 60000);
   }
@@ -144,7 +144,9 @@ export default function Timeline() {
   const span = to - from;
   const step = STEPS.find((s) => span / s <= 10) ?? STEPS[STEPS.length - 1]!;
   const ticks: number[] = [];
-  for (let t = Math.ceil(from / step) * step; t <= to; t += step) ticks.push(t);
+  // Ticks fall on whole hours / midnights of the project's zone, not UTC.
+  const off = zoneOffsetMs(from, tz);
+  for (let t = Math.ceil((from + off) / step) * step - off; t <= to; t += step) ticks.push(t);
   const pct = (n: number) => ((n - from) / span) * 100;
 
   // lanes by owner, with stacked sub-rows so parallel work is visible side by side
@@ -177,6 +179,7 @@ export default function Timeline() {
       <div className="p-4 sm:p-6 space-y-5 max-w-[1400px] mx-auto">
         <div>
           <h2 className="text-xl font-semibold text-text-primary">Cutover timeline · {project?.code ?? data.project.code}</h2>
+          <p className="text-xs text-text-muted" title={tz}>Times in {zoneLabel(tz)} ({tz})</p>
           <p className="text-sm text-text-secondary">One row per owner. Tasks side by side run in parallel; tasks linked by a dependency run one by one. Click a task to trace it.</p>
         </div>
 
@@ -211,7 +214,7 @@ export default function Timeline() {
           <Chip on={view === 'all'} onClick={() => setRange('all')}>Whole plan</Chip>
           {[...model.days.entries()].sort().map(([d, n]) => (
             <Chip key={d} on={view === d} onClick={() => setRange(d)}>
-              {fmtDay(new Date(`${d}T12:00:00`).getTime())} · {n} task{n > 1 ? 's' : ''}{d === model.busiestDay ? ' · go-live' : ''}
+              {dayIn(startOfDayIn(d, tz) + 12 * 3600000, tz)} · {n} task{n > 1 ? 's' : ''}{d === model.busiestDay ? ' · go-live' : ''}
             </Chip>
           ))}
           <div className="ml-auto flex flex-wrap items-center gap-3 text-xs text-text-secondary">
@@ -227,7 +230,7 @@ export default function Timeline() {
               <div className="relative ml-40 h-9 border-b border-border">
                 {ticks.map((t) => (
                   <span key={t} className="absolute top-2 -translate-x-1/2 text-[11px] text-text-muted whitespace-nowrap" style={{ left: `${pct(t)}%` }}>
-                    {step >= 86400000 ? fmtDay(t) : new Date(t).getHours() === 0 && new Date(t).getMinutes() === 0 ? fmtDay(t) : fmtTime(t)}
+                    {step >= 86400000 || timeIn(t, tz) === '00:00' ? dayIn(t, tz) : timeIn(t, tz)}
                   </span>
                 ))}
               </div>
@@ -267,12 +270,12 @@ export default function Timeline() {
                 <p>• Click any task to see what it waits for and what it blocks.</p>
               </div>
             ) : (
-              <TaskPanel t={sel} model={model} code={data.project.code} onPick={setSelected} />
+              <TaskPanel t={sel} model={model} code={data.project.code} tz={tz} onPick={setSelected} />
             )}
           </aside>
         </div>
 
-        <AlertsPanel projectId={data.project.id} onChanged={() => setReload((n) => n + 1)} />
+        <AlertsPanel projectId={data.project.id} timeZone={tz} onChanged={() => setReload((n) => n + 1)} />
 
         {unscheduled.length > 0 && (
           <div className="bg-surface border border-border rounded-card shadow-card p-4">
@@ -318,7 +321,7 @@ function Bar({ t, pct, from, to, clash, dim, role, onClick }: {
   );
 }
 
-function TaskPanel({ t, model, code, onPick }: { t: TTask; model: any; code: string; onPick: (id: string) => void }) {
+function TaskPanel({ t, model, code, tz, onPick }: { t: TTask; model: any; code: string; tz: string; onPick: (id: string) => void }) {
   const list = (ids: string[] = [], tone: string) =>
     ids.length === 0 ? <p className="text-text-muted">None</p> : ids.map((id) => {
       const x: TTask = model.byId.get(id);
@@ -333,8 +336,8 @@ function TaskPanel({ t, model, code, onPick }: { t: TTask; model: any; code: str
         <p className="text-xs text-text-secondary mt-1">{owner(t)} · {t.status}</p>
       </div>
       <div className="rounded-md bg-surface-hover p-2 text-xs space-y-0.5">
-        <p>Start: <b>{t.plannedStartTime ? new Date(t.plannedStartTime).toLocaleString('en-GB') : '-'}</b></p>
-        <p>End: <b>{t.plannedEndTime ? new Date(t.plannedEndTime).toLocaleString('en-GB') : 'N/A'}</b></p>
+        <p>Start: <b>{whenWithUtc(t.plannedStartTime, tz, '-')}</b></p>
+        <p>End: <b>{whenWithUtc(t.plannedEndTime, tz, 'N/A')}</b></p>
         <p>Duration: <b>{formatDuration(t.plannedStartTime, t.plannedEndTime)}</b>{kind === 'long-running' && ' - long-running, does not block the owner'}{kind === 'milestone' && ' - a checkpoint'}</p>
       </div>
       {(() => {
@@ -342,7 +345,7 @@ function TaskPanel({ t, model, code, onPick }: { t: TTask; model: any; code: str
         return (
           <div className={`rounded-md border p-2 text-xs ${a.cls}`}>
             <p className="font-semibold">{a.icon} Start-time alert: {a.label}</p>
-            {t.alert?.recipient && <p className="mt-0.5 break-all">To {t.alert.recipient}{t.alert.sentAt ? ` at ${hhmm(t.alert.sentAt)}` : ''}{t.alert.acknowledgedAt ? ` · started ${hhmm(t.alert.acknowledgedAt)}` : ''}</p>}
+            {t.alert?.recipient && <p className="mt-0.5 break-all">To {t.alert.recipient}{t.alert.sentAt ? ` at ${hhmm(t.alert.sentAt, tz)}` : ''}{t.alert.acknowledgedAt ? ` · started ${hhmm(t.alert.acknowledgedAt, tz)}` : ''}</p>}
             {a.hint && <p className="mt-0.5 opacity-80">{a.hint}</p>}
           </div>
         );

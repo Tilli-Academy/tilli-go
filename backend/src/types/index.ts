@@ -31,7 +31,7 @@ export type {
 } from './task';
 
 // ── Project domain ──────────────────────────────────────────────────────────
-export type { CreateProjectDTO, ProjectFilterParams } from './project';
+export type { CreateProjectDTO, UpdateProjectDTO, ProjectFilterParams } from './project';
 
 // ── Auth domain ─────────────────────────────────────────────────────────────
 export type {

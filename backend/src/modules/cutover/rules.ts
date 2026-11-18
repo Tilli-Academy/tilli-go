@@ -3,8 +3,9 @@
  *
  * 1. Tasks linked by a dependency run one by one, so they never clash.
  * 2. Tasks with no dependency between them may run in PARALLEL in the same
- *    time frame - but then they must not have the same owner: the same person,
- *    or (when no person is set on either) the same team.
+ *    time frame - but then they must not have the same person as owner.
+ *    Team text is not compared: two people from one team can work in parallel,
+ *    and team text like "A / B" would give false clashes.
  * 3. Durations are flexible: 0:00:00 (a milestone / checkpoint), minutes,
  *    days or weeks, or N/A (no end time). Long-running tasks (24h or more,
  *    e.g. "get approval from management") are waiting-type work and don't
@@ -47,10 +48,7 @@ export function assertEndAfterStart(start: Date | null | undefined, end: Date | 
 }
 
 function sameOwner(a: PlanTask, b: PlanTask): boolean {
-  if (a.assignedUserId || b.assignedUserId) return !!a.assignedUserId && a.assignedUserId === b.assignedUserId;
-  const ta = a.assignedTeam?.trim().toLowerCase();
-  const tb = b.assignedTeam?.trim().toLowerCase();
-  return !!ta && ta === tb;
+  return !!a.assignedUserId && a.assignedUserId === b.assignedUserId;
 }
 
 /** Only short, scheduled, unfinished tasks occupy their owner. */
@@ -141,7 +139,7 @@ export async function assertNoOwnerClash(
   const { tasks, edges } = await loadPlan(candidate.projectId);
   const others: PlanTask[] = tasks
     .filter((t) => t.id !== candidate.id)
-    .map((t) => ({ ...t, ownerName: t.assignedUser?.name ?? t.assignedTeam }));
+    .map((t) => ({ ...t, ownerName: t.assignedUser?.name ?? null }));
   const id = candidate.id ?? '__new__';
   if (dependencyIds) edges.set(id, dependencyIds);
 
@@ -152,7 +150,7 @@ export async function assertNoOwnerClash(
     const who = other.ownerName ?? 'the same owner';
     throw new AppError(
       `Parallel task clash with ${project?.code ?? ''}-${other.sequenceNumber} "${other.taskName}": both run at the same time and are owned by ${who}. ` +
-        'Assign a different person/team, change the time, or add a dependency if one must wait for the other.',
+        'Assign a different person, change the time, or add a dependency if one must wait for the other.',
       409,
     );
   }

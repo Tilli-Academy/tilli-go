@@ -2,7 +2,7 @@ import config from '../config';
 import { escapeHtml, signAckToken } from './emailService';
 
 // Start-time alert email ("your task is ready to start now"), following the
-// DeployFlow Start-time alerts mockup. Inline styles only — email clients
+// Start-time alerts mockup. Inline styles only — email clients
 // ignore <style> blocks.
 
 export interface AlertTask {
@@ -16,17 +16,18 @@ export interface AlertTask {
   notes: string | null;
   description: string | null;
   assignedUser: { id: string; email: string; name: string } | null;
-  project: { code: string; name: string };
+  project: { code: string; name: string; timeZone: string };
   dependsOn: Array<{ dependsOn: { sequenceNumber: number; taskName: string; actualEndTime: Date | null } }>;
 }
 
 const TWELVE_HOURS = 12 * 60 * 60 * 1000;
 
-function tzLabel(tz: string): string {
+/** Short zone name at that moment, e.g. CST / CDT / IST (falls back to GMT-6 style). */
+export function tzLabel(tz: string, at: Date = new Date()): string {
   if (tz === 'Asia/Kolkata') return 'IST';
   if (tz === 'UTC' || tz === 'Etc/UTC') return 'UTC';
-  const part = new Intl.DateTimeFormat('en-GB', { timeZone: tz, timeZoneName: 'short' })
-    .formatToParts(new Date())
+  const part = new Intl.DateTimeFormat('en-US', { timeZone: tz, timeZoneName: 'short' })
+    .formatToParts(at)
     .find((p) => p.type === 'timeZoneName');
   return part?.value ?? tz;
 }
@@ -39,12 +40,11 @@ function day(d: Date, tz: string): string {
   return new Intl.DateTimeFormat('en-GB', { timeZone: tz, weekday: 'short', day: 'numeric', month: 'short' }).format(d);
 }
 
-/** "22:00 IST (16:30 UTC) · Sat 17 Oct" */
-export function formatWhen(d: Date | null, withDay = true): string {
+/** In the project's timezone with UTC alongside: "21:00 CST (03:00 UTC) · Sat 17 Oct" */
+export function formatWhen(d: Date | null, tz: string, withDay = true): string {
   if (!d) return 'Not set';
-  const tz = config.alerts.timeZone;
-  const local = `${hhmm(d, tz)} ${tzLabel(tz)}`;
-  const utc = tz === 'UTC' ? '' : ` (${hhmm(d, 'UTC')} UTC)`;
+  const local = `${hhmm(d, tz)} ${tzLabel(tz, d)}`;
+  const utc = tz === 'UTC' || tz === 'Etc/UTC' ? '' : ` (${hhmm(d, 'UTC')} UTC)`;
   return `${local}${utc}${withDay ? ` · ${day(d, tz)}` : ''}`;
 }
 
@@ -63,7 +63,7 @@ export function buildAlertAckUrl(task: AlertTask): string {
 function shell(inner: string, footer: string): string {
   return `<!doctype html><html><body style="margin:0;padding:24px;background:#f5f7fa;font-family:Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#0f172a">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:640px;margin:0 auto;background:#ffffff;border:1px solid #e4e8ee;border-radius:14px;overflow:hidden">
-<tr><td style="background:#0f172a;color:#ffffff;padding:14px 20px;font-weight:600;font-size:15px">DeployFlow</td></tr>
+<tr><td style="background:#0f172a;color:#ffffff;padding:14px 20px;font-weight:600;font-size:15px">Tilli-go</td></tr>
 <tr><td style="padding:22px 20px">${inner}</td></tr>
 <tr><td style="padding:14px 20px;background:#f8fafc;border-top:1px solid #e4e8ee;font-size:12.5px;color:#5f6c80">${footer}</td></tr>
 </table></body></html>`;
@@ -77,12 +77,13 @@ export function buildStartAlert(task: AlertTask): { subject: string; html: strin
   const code = taskCode(task);
   const ackUrl = buildAlertAckUrl(task);
   const first = (task.assignedUser?.name ?? '').split(' ')[0] || 'there';
-  const subject = `[DeployFlow] ${code} is ready to start — ${task.taskName}`;
+  const tz = task.project.timeZone;
+  const subject = `[Tilli-go] ${code} is ready to start — ${task.taskName}`;
 
   const done = task.dependsOn.length
     ? task.dependsOn
         .map((d) => {
-          const at = d.dependsOn.actualEndTime ? ` — Completed at ${escapeHtml(formatWhen(d.dependsOn.actualEndTime, false))}` : ' — Completed';
+          const at = d.dependsOn.actualEndTime ? ` — Completed at ${escapeHtml(formatWhen(d.dependsOn.actualEndTime, tz, false))}` : ' — Completed';
           return `${escapeHtml(task.project.code)}-${d.dependsOn.sequenceNumber} · ${escapeHtml(d.dependsOn.taskName)}${at}`;
         })
         .join('<br>')
@@ -100,13 +101,13 @@ export function buildStartAlert(task: AlertTask): { subject: string; html: strin
 <table role="presentation" cellpadding="0" cellspacing="0" style="margin-top:16px">
 ${row('Project', `${escapeHtml(task.project.name)} <span style="font-weight:500;color:#5f6c80">(${escapeHtml(task.project.code)})</span>`)}
 ${row('System · Team', `${escapeHtml(task.system)} · ${escapeHtml(task.assignedTeam || '—')}`)}
-${row('Planned start', escapeHtml(formatWhen(task.plannedStartTime)))}
-${row('Planned end', escapeHtml(formatWhen(task.plannedEndTime, false)))}
+${row('Planned start', escapeHtml(formatWhen(task.plannedStartTime, tz)))}
+${row('Planned end', escapeHtml(formatWhen(task.plannedEndTime, tz, false)))}
 </table>
 <div style="margin-top:16px;border:1px solid #bfe8d1;background:#eefaf3;border-radius:10px;padding:10px 12px;font-size:13.5px;color:#0b6b43"><b>✓ All earlier steps are done</b><br>${done}</div>
 ${notes}
 <p style="margin:20px 0 0"><a href="${ackUrl}" style="display:inline-block;padding:12px 20px;background:#2563eb;color:#ffffff;text-decoration:none;border-radius:10px;font-weight:600;font-size:15px">Acknowledge &amp; start</a></p>
-<p style="font-size:12px;color:#5f6c80;margin:10px 0 0">The button opens a DeployFlow page — nothing changes until you click there. The link works only for this task and expires 12 hours after the planned end.</p>`;
+<p style="font-size:12px;color:#5f6c80;margin:10px 0 0">The button opens a Tilli-go page — nothing changes until you click there. The link works only for this task and expires 12 hours after the planned end.</p>`;
 
   const footer = `You're getting this because you own ${escapeHtml(code)} in ${escapeHtml(task.project.name)}. Questions? Just reply — it goes to Release Management.`;
   return { subject, html: shell(inner, footer), ackUrl };
@@ -119,15 +120,16 @@ export function buildManagerNotice(
   detail?: string,
 ): { subject: string; html: string } {
   const code = taskCode(task);
+  const tz = task.project.timeZone;
   const subjects = {
-    no_owner: `[DeployFlow] ${code} is ready but has no owner`,
-    blocked_domain: `[DeployFlow] ${code} is ready — owner's address is outside the company`,
-    failed: `[DeployFlow] Alert for ${code} could not be delivered`,
+    no_owner: `[Tilli-go] ${code} is ready but has no owner`,
+    blocked_domain: `[Tilli-go] ${code} is ready — owner's address is outside the company`,
+    failed: `[Tilli-go] Alert for ${code} could not be delivered`,
   };
   const explain = {
-    no_owner: 'This task reached its start time and everything before it is done, but nobody is assigned. DeployFlow never guesses an address, so please make sure someone picks it up.',
-    blocked_domain: `The owner's address (${escapeHtml(detail ?? '')}) is not a company address, so DeployFlow did not email it. Please contact the owner directly.`,
-    failed: `DeployFlow tried several times and could not deliver the alert${detail ? ` (${escapeHtml(detail)})` : ''}. Please contact the owner directly.`,
+    no_owner: 'This task reached its start time and everything before it is done, but nobody is assigned. Tilli-go never guesses an address, so please make sure someone picks it up.',
+    blocked_domain: `The owner's address (${escapeHtml(detail ?? '')}) is not a company address, so Tilli-go did not email it. Please contact the owner directly.`,
+    failed: `Tilli-go tried several times and could not deliver the alert${detail ? ` (${escapeHtml(detail)})` : ''}. Please contact the owner directly.`,
   };
   const inner = `
 <span style="display:inline-block;padding:3px 10px;border-radius:999px;font-size:12px;font-weight:600;color:#a8312a;background:#fff3f2;border:1px solid #f7cfca">Needs attention</span>
@@ -136,8 +138,8 @@ export function buildManagerNotice(
 <table role="presentation" cellpadding="0" cellspacing="0" style="margin-top:16px">
 ${row('Project', escapeHtml(task.project.name))}
 ${row('Team', escapeHtml(task.assignedTeam || '—'))}
-${row('Planned start', escapeHtml(formatWhen(task.plannedStartTime)))}
+${row('Planned start', escapeHtml(formatWhen(task.plannedStartTime, tz)))}
 </table>
 <p style="margin:18px 0 0"><a href="${config.frontendUrl}/#/timeline" style="color:#2563eb">Open the cutover timeline</a></p>`;
-  return { subject: subjects[reason], html: shell(inner, 'Sent to Release Management by DeployFlow start-time alerts.') };
+  return { subject: subjects[reason], html: shell(inner, 'Sent to Release Management by Tilli-go start-time alerts.') };
 }

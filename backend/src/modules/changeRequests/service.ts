@@ -3,7 +3,8 @@ import prisma from '../../config/prisma';
 import logger from '../../config/logger';
 import { AppError } from '../../utils/errors';
 import type { JwtPayload } from '../../types';
-import { OPEN_STATUSES, canApprove, findTransition, transitionsFor, approverRoles } from './workflow';
+import { OPEN_STATUSES, findTransition, transitionsFor } from './workflow';
+import { hasPermission, rolesWith } from '../auth/permissions';
 import type { CreateChangeDTO } from './validators';
 import * as storage from './storage';
 import { CHANGE_TYPES, LEVELS, PRIORITIES, PRODUCTS, RELEASE_TYPES } from './options';
@@ -113,7 +114,7 @@ export async function getById(id: string, user: JwtPayload) {
     conflicts,
     cutover: cr.projectId ? stats[cr.projectId] ?? { total: 0, completed: 0, blocked: 0 } : null,
     transitions: transitionsFor(cr.status),
-    canApprove: canApprove(user.role),
+    canApprove: hasPermission(user, 'cr.decide'),
   };
 }
 
@@ -135,8 +136,8 @@ export async function transition(id: string, to: string, reason: string | undefi
   if (!cr) throw new AppError('Change request not found', 404);
   const t = findTransition(cr.status, to);
   if (!t) throw new AppError(`Cannot move from ${cr.status} to ${to}`, 409);
-  if (t.approverOnly && !canApprove(user.role)) {
-    throw new AppError(`Approval is a gated checkpoint - only ${approverRoles().join('/')} users can approve`, 403);
+  if (t.approverOnly && !hasPermission(user, 'cr.decide')) {
+    throw new AppError('Only approvers can approve, send back or reject a change request', 403);
   }
   if (t.needsReason && (!reason || reason.length < 5)) throw new AppError('Please give a short reason (5+ characters)', 400);
 
@@ -187,17 +188,22 @@ export async function addComment(id: string, message: string, user: JwtPayload) 
   });
 }
 
-/** Creates the cutover plan as a normal Tilli-go project, linked to this CR. */
+/**
+ * Creates the cutover plan as a normal Tilli-go project, linked to this CR.
+ * Everything happens in one transaction that first locks the CR row, so a double
+ * click waits for the first request and then just returns the plan it made.
+ */
 export async function createCutover(id: string, user: JwtPayload) {
-  const cr = await prisma.changeRequest.findUnique({ where: { id } });
-  if (!cr) throw new AppError('Change request not found', 404);
-  if (cr.projectId) return prisma.project.findUniqueOrThrow({ where: { id: cr.projectId } });
-  if (['CLOSED', 'CANCELLED'].includes(cr.status)) throw new AppError('This change request is finished', 409);
+  const { project, created } = await prisma.$transaction(async (tx) => {
+    const locked = await tx.$queryRaw<Array<{ id: string }>>`SELECT id FROM "change_requests" WHERE id = ${id} FOR UPDATE`;
+    if (locked.length === 0) throw new AppError('Change request not found', 404);
+    const cr = await tx.changeRequest.findUniqueOrThrow({ where: { id } });
+    if (cr.projectId) return { project: await tx.project.findUniqueOrThrow({ where: { id: cr.projectId } }), created: false };
+    if (['CLOSED', 'CANCELLED'].includes(cr.status)) throw new AppError('This change request is finished', 409);
 
-  let code = `CR-${cr.number}`;
-  for (let i = 2; await prisma.project.findUnique({ where: { code } }); i++) code = `CR-${cr.number}-${i}`;
+    let code = `CR-${cr.number}`;
+    for (let i = 2; await tx.project.findUnique({ where: { code } }); i++) code = `CR-${cr.number}-${i}`;
 
-  const project = await prisma.$transaction(async (tx) => {
     const p = await tx.project.create({
       data: { code, name: `${code} ${cr.title}`.slice(0, 100), description: `Cutover plan for change request ${code}` },
     });
@@ -205,9 +211,9 @@ export async function createCutover(id: string, user: JwtPayload) {
     await tx.changeEvent.create({
       data: { changeRequestId: id, kind: 'CUTOVER', actorId: user.id, message: `created the cutover plan (project ${code})` },
     });
-    return p;
+    return { project: p, created: true };
   });
-  logger.info({ crId: id, projectId: project.id }, 'Cutover project created for change request');
+  if (created) logger.info({ crId: id, projectId: project.id }, 'Cutover project created for change request');
   return project;
 }
 
@@ -239,8 +245,8 @@ export async function meta(user: JwtPayload) {
   return {
     users,
     options: { products: PRODUCTS, changeTypes: CHANGE_TYPES, releaseTypes: RELEASE_TYPES, priorities: PRIORITIES, levels: LEVELS },
-    approverRoles: approverRoles(),
-    canApprove: canApprove(user.role),
+    approverRoles: rolesWith('cr.decide'),
+    canApprove: hasPermission(user, 'cr.decide'),
   };
 }
 

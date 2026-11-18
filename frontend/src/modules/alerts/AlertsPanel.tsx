@@ -2,6 +2,7 @@ import { useCallback, useContext, useEffect, useState } from 'react';
 import { ProjectContext } from '../../App';
 import api, { getErrorMessage } from '../../services/api';
 import { alertLabel, hhmm, type TaskAlertInfo } from './alertMeta';
+import { zoneLabel } from '../../utils/zoneTime';
 
 interface AlertTaskRow {
   id: string;
@@ -27,7 +28,8 @@ interface AlertData {
   project: { id: string; code: string; name: string; startAlertsEnabled: boolean };
   canManage: boolean;
   demoTools: boolean;
-  settings: { fromAddress: string; replyTo: string; timeZone: string; allowedDomains: string[] };
+  /** What the worker really uses; null until the worker has started. */
+  settings: { fromAddress: string; replyTo: string; allowedDomains: string[] } | null;
   counts: Record<string, number>;
   tasks: AlertTaskRow[];
   events: AlertEvent[];
@@ -39,7 +41,7 @@ function describe(e: AlertEvent): { text: string; tone: string } {
   switch (e.action) {
     case 'EMAIL_SENT':
       return { text: `Alert email sent ${(e.newValue ?? '').replace(/^to=/, 'to ').replace(/\sattempt=\d+/, '')}`, tone: 'bg-sky-500' };
-    case 'ALERT_NO_OWNER': return { text: 'No owner set — release manager emailed instead', tone: 'bg-rose-500' };
+    case 'ALERT_NO_OWNER': return { text: 'Due but no owner — on hold, release manager emailed', tone: 'bg-rose-500' };
     case 'ALERT_BLOCKED_DOMAIN': return { text: `${(e.newValue ?? '').replace(/^not sent/, 'Not sent')}`, tone: 'bg-rose-500' };
     case 'ALERT_RETRY': return { text: `Email failed, retrying: ${e.newValue ?? ''}`, tone: 'bg-amber-500' };
     case 'ALERT_FAILED': return { text: `Email failed for good: ${e.newValue ?? ''}`, tone: 'bg-rose-600' };
@@ -54,7 +56,7 @@ function describe(e: AlertEvent): { text: string; tone: string } {
   return { text: e.action, tone: 'bg-slate-400' };
 }
 
-export default function AlertsPanel({ projectId, onChanged }: { projectId: string; onChanged: () => void }) {
+export default function AlertsPanel({ projectId, timeZone, onChanged }: { projectId: string; timeZone: string; onChanged: () => void }) {
   const { refreshProjects, setSelectedProjectId } = useContext(ProjectContext);
   const [data, setData] = useState<AlertData | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -147,8 +149,8 @@ export default function AlertsPanel({ projectId, onChanged }: { projectId: strin
                 {data.tasks.map((t) => {
                   const a = alertLabel(t.alert, t.status);
                   const when = t.alert?.status === 'ACKNOWLEDGED'
-                    ? `emailed ${hhmm(t.alert.sentAt)} · started ${hhmm(t.alert.acknowledgedAt)}`
-                    : t.alert?.sentAt ? `emailed ${hhmm(t.alert.sentAt)}` : t.alert?.status === 'RETRYING' ? `attempt ${t.alert.attempts}` : !t.alert && t.plannedStartTime && t.status === 'Pending' ? `planned ${hhmm(t.plannedStartTime)}` : '';
+                    ? `emailed ${hhmm(t.alert.sentAt, timeZone)} · started ${hhmm(t.alert.acknowledgedAt, timeZone)}`
+                    : t.alert?.sentAt ? `emailed ${hhmm(t.alert.sentAt, timeZone)}` : t.alert?.status === 'RETRYING' ? `attempt ${t.alert.attempts}` : !t.alert && t.plannedStartTime && t.status === 'Pending' ? `planned ${hhmm(t.plannedStartTime, timeZone)}` : '';
                   return (
                     <tr key={t.id} className="border-t border-border">
                       <td className="px-3 py-2 font-mono text-xs text-text-secondary whitespace-nowrap">{t.code}</td>
@@ -173,20 +175,20 @@ export default function AlertsPanel({ projectId, onChanged }: { projectId: strin
           <div className="rounded-lg border border-border p-3 text-xs space-y-1">
             <p className="font-semibold text-text-primary text-sm mb-1">Safety rules</p>
             <p>• <b>Off by default</b> — new projects never email anyone until switched on.</p>
-            <p>• <b>Company addresses only</b> — {data.settings.allowedDomains.map((d) => `@${d}`).join(', ')}.</p>
+            {data.settings && <p>• <b>Company addresses only</b> — {data.settings.allowedDomains.map((d) => `@${d}`).join(', ')}.</p>}
             <p>• <b>One alert per task</b> — no duplicate emails.</p>
             <p>• <b>One click to confirm</b> — opening the link changes nothing, so email scanners can't confirm by accident.</p>
-            <p className="pt-1 text-text-muted">From {data.settings.fromAddress} · replies to {data.settings.replyTo} · times in {data.settings.timeZone} and UTC</p>
+            <p className="pt-1 text-text-muted">{data.settings ? `From ${data.settings.fromAddress} · replies to ${data.settings.replyTo}` : 'Mail worker not running'} · times in {zoneLabel(timeZone)} and UTC</p>
           </div>
           <div className="rounded-lg border border-border">
             <p className="border-b border-border px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-text-secondary">Alert history · updates every 10 s</p>
             <ul className="max-h-72 overflow-y-auto px-3 py-2 text-xs">
-              {data.events.length === 0 && <li className="py-2 text-text-muted">Nothing yet. DeployFlow checks the plan every minute.</li>}
+              {data.events.length === 0 && <li className="py-2 text-text-muted">Nothing yet. Checked every minute.</li>}
               {data.events.map((e) => {
                 const d = describe(e);
                 return (
                   <li key={e.id} className="grid grid-cols-[44px_10px_1fr] gap-2 py-1.5">
-                    <span className="font-mono text-text-muted">{hhmm(e.at)}</span>
+                    <span className="font-mono text-text-muted">{hhmm(e.at, timeZone)}</span>
                     <span className={`mt-1 h-2 w-2 rounded-full ${d.tone}`} />
                     <span className="text-text-secondary min-w-0 break-words"><b className="font-mono text-text-primary">{e.code}</b> {d.text}</span>
                   </li>

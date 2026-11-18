@@ -131,7 +131,7 @@ export const preview = async (req: Request, res: Response, next: NextFunction): 
         id: true, sequenceNumber: true, taskName: true, system: true, assignedTeam: true, status: true,
         plannedStartTime: true, plannedEndTime: true, actualStartTime: true, notes: true, description: true,
         assignedUser: { select: { name: true } },
-        project: { select: { code: true, name: true } },
+        project: { select: { code: true, name: true, timeZone: true } },
         alert: { select: { status: true, sentAt: true, acknowledgedAt: true } },
         dependsOn: {
           select: { dependsOn: { select: { sequenceNumber: true, taskName: true, status: true, actualEndTime: true } } },
@@ -148,6 +148,7 @@ export const preview = async (req: Request, res: Response, next: NextFunction): 
       code: `${project.code}-${task.sequenceNumber}`,
       projectCode: project.code,
       projectName: project.name,
+      timeZone: project.timeZone,
       earlierSteps: dependsOn.map((d) => ({
         code: `${project.code}-${d.dependsOn.sequenceNumber}`,
         taskName: d.dependsOn.taskName,

@@ -1,4 +1,4 @@
-// Regression tests for PR #7 review items 3 and 4.
+// Regression tests for PR #7 review items 3 and 4, and reviewer decision 2.
 // Run: npm test   (Node's built-in test runner via tsx; no database or network needed)
 import { test, mock } from 'node:test';
 import assert from 'node:assert/strict';
@@ -61,4 +61,24 @@ test('a database error after a successful send does not cause a second email (re
   assert.equal(sendMail.mock.callCount(), 1, 'email sent exactly once');
   assert.equal(upsert.mock.callCount(), 1, 'status save attempted once, failure only logged');
   mock.restoreAll();
+});
+
+test('a due task with no owner is held, not started (reviewer decision 2)', async () => {
+  const prisma = require('../src/config/prisma');
+  const processor = require('../src/processors/taskProcessor') as (job: unknown) => Promise<{ status: string; reason?: string }>;
+  const update = mock.fn(async () => ({}));
+  Object.defineProperty(prisma, 'task', {
+    value: { findUnique: async () => ({ status: 'Pending', assignedUserId: null, project: { startAlertsEnabled: true } }), update },
+    configurable: true,
+  });
+
+  const result = await processor({ id: 'j2', name: 'process-task', data: { taskId: 't2' } });
+
+  assert.equal(result.status, 'held');
+  assert.equal(result.reason, 'no_owner');
+  assert.equal(update.mock.callCount(), 0, 'status not changed');
+  mock.restoreAll();
+  // The processor loads the email queue; close its Redis connections so the test run can exit.
+  await require('../src/services/emailProducer').close();
+  require('../src/config/redis').disconnect();
 });

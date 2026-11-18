@@ -8,14 +8,14 @@ import type { TaskJobPayload, TaskProcessorResult } from '../types';
 /**
  * task-queue processor.
  *
- * Handles two job names:
+ * Handles three job names:
  *   - process-task:       Pending → Triggered + trigger email
  *   - process-completion: Acknowledged → completion email (no status change here)
+ *   - process-no-owner:   a due task has no owner → it stays Pending, Release Management is told
  */
 const processor = async (job: Job<TaskJobPayload>): Promise<TaskProcessorResult> => {
-  if (job.name === 'process-completion') {
-    return processCompletion(job);
-  }
+  if (job.name === 'process-completion') return processCompletion(job);
+  if (job.name === 'process-no-owner') return processNoOwner(job);
   return processTrigger(job);
 };
 
@@ -39,9 +39,7 @@ async function processTrigger(job: Job<TaskJobPayload>): Promise<TaskProcessorRe
   // ── 1. Fetch task ────────────────────────────────────────────────────
   const task = await prisma.task.findUnique({
     where: { id: taskId },
-    include: {
-      assignedUser: { select: { id: true, email: true, name: true } },
-    },
+    select: { status: true, assignedUserId: true, project: { select: { startAlertsEnabled: true } } },
   });
 
   if (!task) {
@@ -53,6 +51,12 @@ async function processTrigger(job: Job<TaskJobPayload>): Promise<TaskProcessorRe
   if (task.status !== 'Pending') {
     log.info({ currentStatus: task.status }, 'Task already processed — skipping');
     return { status: 'skipped', reason: 'already_processed' };
+  }
+
+  // A task with no owner never starts (the scheduler holds it too).
+  if (!task.assignedUserId) {
+    log.info('No owner — task held');
+    return { status: 'held', reason: 'no_owner' };
   }
 
   // ── 3. Dependency check (worker layer) ───────────────────────────────
@@ -83,11 +87,7 @@ async function processTrigger(job: Job<TaskJobPayload>): Promise<TaskProcessorRe
   log.info('Task status → Triggered');
 
   // ── 5b. Start-time alerts are switched on per project ───────────────
-  const project = await prisma.project.findUnique({
-    where: { id: task.projectId },
-    select: { startAlertsEnabled: true },
-  });
-  if (!project?.startAlertsEnabled) {
+  if (!task.project.startAlertsEnabled) {
     log.info('Start-time alerts are off for this project — no email');
     return { status: 'triggered', taskId };
   }
@@ -113,7 +113,7 @@ async function processCompletion(job: Job<TaskJobPayload>): Promise<TaskProcesso
 
   const task = await prisma.task.findUnique({
     where: { id: taskId },
-    select: { id: true, status: true, taskName: true },
+    select: { status: true, project: { select: { startAlertsEnabled: true } } },
   });
 
   if (!task) {
@@ -128,11 +128,7 @@ async function processCompletion(job: Job<TaskJobPayload>): Promise<TaskProcesso
   }
 
   // Same switch as start-time alerts: no emails for projects that have them off.
-  const project = await prisma.task.findUnique({
-    where: { id: taskId },
-    select: { project: { select: { startAlertsEnabled: true } } },
-  });
-  if (!project?.project.startAlertsEnabled) {
+  if (!task.project.startAlertsEnabled) {
     log.info('Alerts are off for this project — no completion email');
     return { status: 'skipped', reason: 'alerts_off' };
   }
@@ -141,6 +137,19 @@ async function processCompletion(job: Job<TaskJobPayload>): Promise<TaskProcesso
 
   log.info('Completion email job enqueued');
   return { status: 'completion_enqueued', taskId };
+}
+
+/** process-no-owner: the task stays Pending; Release Management is emailed once (if alerts are on). */
+async function processNoOwner(job: Job<TaskJobPayload>): Promise<TaskProcessorResult> {
+  const { taskId } = job.data;
+  const task = await prisma.task.findUnique({
+    where: { id: taskId },
+    select: { status: true, assignedUserId: true, project: { select: { startAlertsEnabled: true } } },
+  });
+  if (!task || task.status !== 'Pending' || task.assignedUserId) return { status: 'skipped', reason: 'not_held' };
+  if (!task.project.startAlertsEnabled) return { status: 'held', reason: 'alerts_off' };
+  await addEmailJob({ taskId, type: 'no_owner' });
+  return { status: 'held', taskId };
 }
 
 export = processor;

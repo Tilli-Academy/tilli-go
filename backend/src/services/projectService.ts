@@ -2,7 +2,7 @@ import prisma from '../config/prisma';
 import logger from '../config/logger';
 import { AppError } from '../utils/errors';
 import type { Project } from '@prisma/client';
-import type { CreateProjectDTO, ProjectFilterParams, PaginatedResponse } from '../types';
+import type { CreateProjectDTO, UpdateProjectDTO, ProjectFilterParams, PaginatedResponse } from '../types';
 
 export async function list(filters: ProjectFilterParams = {}): Promise<PaginatedResponse<Project>> {
   const page = Math.max(1, Number(filters.page) || 1);
@@ -35,6 +35,11 @@ export async function create(data: CreateProjectDTO): Promise<Project> {
     throw new AppError('Project code already exists', 409);
   }
   return prisma.project.create({ data });
+}
+
+export async function update(id: string, data: UpdateProjectDTO): Promise<Project> {
+  await getById(id);
+  return prisma.project.update({ where: { id }, data });
 }
 
 export async function remove(id: string): Promise<void> {

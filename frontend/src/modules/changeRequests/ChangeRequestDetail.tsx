@@ -109,7 +109,7 @@ export default function ChangeRequestDetail() {
                   const cls = t.kind === 'forward' ? btnPrimary : t.kind === 'cancel' ? `${btnGhost} !text-rose-600` : btnGhost;
                   return (
                     <button key={t.to} type="button" disabled={busy || locked} className={cls}
-                      title={locked ? 'Gated checkpoint - approvers only' : undefined}
+                      title={locked ? 'Approvers only' : undefined}
                       onClick={() => (t.needsReason ? setPicked(picked?.to === t.to ? null : t) : move(t))}>
                       {locked ? '🔒 ' : t.kind === 'back' ? '↩ ' : ''}{t.label}
                     </button>
@@ -118,7 +118,7 @@ export default function ChangeRequestDetail() {
               </div>
             )}
             {cr.transitions.some((t) => t.approverOnly) && !cr.canApprove && (
-              <p className="text-xs text-text-secondary">🔒 Approval is a gated checkpoint - only an approver (admin, e.g. Product Manager or CTO) can approve this for production.</p>
+              <p className="text-xs text-text-secondary">🔒 Waiting for an approver.</p>
             )}
             {picked && (
               <form onSubmit={(e) => { e.preventDefault(); move(picked); }} className="space-y-2 rounded-lg border border-amber-200 bg-amber-50 p-3">

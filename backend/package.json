@@ -11,7 +11,8 @@
     "db:migrate": "npx prisma migrate dev",
     "db:seed": "tsx prisma/seed.ts",
     "db:generate": "npx prisma generate",
-    "db:seed:cr": "tsx prisma/seed-change-requests.ts"
+    "db:seed:cr": "tsx prisma/seed-change-requests.ts",
+    "db:seed:cr:built": "node dist/prisma/seed-change-requests.js"
   },
   "dependencies": {
     "@azure/msal-node": "^5.2.1",

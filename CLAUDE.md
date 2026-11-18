@@ -126,7 +126,7 @@ DATABASE_URL="postgresql://deployflow:change-me-in-production@localhost:5438/dep
 
 ## Environment Variables
 **Required:** `DATABASE_URL`, `JWT_SECRET`, `ACK_TOKEN_SECRET`
-**Optional:** `REDIS_HOST` (localhost), `REDIS_PORT` (6379), `API_PORT` (3001), `FRONTEND_URL` (http://localhost:3004), `SMTP_HOST/PORT/USER/PASS` (mock if blank), `EMAIL_DOMAIN` (tilli.pro), `EMAIL_FROM_ADDRESS`, `EMAIL_FROM_NAME` (DeployFlow), `EMAIL_FALLBACK_TEAM` (ops), `ACK_TOKEN_EXPIRY_MS` (7 days)
+**Optional:** `REDIS_HOST` (localhost), `REDIS_PORT` (6379), `API_PORT` (3001), `FRONTEND_URL` (http://localhost:3004), `SMTP_HOST/PORT/USER/PASS` (mock if blank), `EMAIL_DOMAIN` (tilli.pro), `EMAIL_FROM_ADDRESS`, `EMAIL_FROM_NAME` (Tilli-go), `ACK_TOKEN_EXPIRY_MS` (7 days)
 **Docker-only:** `POSTGRES_PORT` (5438), `REDIS_PORT` (6383), `API_PORT` (3003), `FRONTEND_PORT` (3004)
 
 ## Migrations

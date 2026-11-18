@@ -3,6 +3,7 @@ import nodemailer from 'nodemailer';
 import config from '../config';
 import logger from '../config/logger';
 import { sendEmailViaGraph } from './graphEmailService';
+import { fromAddress } from './mailSettings';
 
 // ── Transport ────────────────────────────────────────────────────────────────
 // Real SMTP when credentials are configured, otherwise jsonTransport mock.
@@ -36,11 +37,6 @@ export function signAckToken(taskId: string, opts: { uid?: string; exp?: number 
   return `${payload}.${signature}`;
 }
 
-export function buildAckUrl(taskId: string): string {
-  const token = signAckToken(taskId);
-  return `${config.frontendUrl}/#/acknowledge?task_id=${taskId}&token=${token}`;
-}
-
 // ── HTML escaping ────────────────────────────────────────────────────────────
 
 export function escapeHtml(str: string): string {
@@ -61,20 +57,6 @@ interface TaskForEmail {
   description: string | null;
   assignedTeam: string | null;
   assignedUser: { id: string; email: string; name: string } | null;
-}
-
-function buildTaskEmailHtml(task: TaskForEmail, ackUrl: string): string {
-  return [
-    `<h2>Task Triggered: ${escapeHtml(task.taskName)}</h2>`,
-    `<p><strong>System:</strong> ${escapeHtml(task.system)}</p>`,
-    `<p><strong>Team:</strong> ${escapeHtml(task.assignedTeam || 'Unassigned')}</p>`,
-    task.description
-      ? `<p><strong>Description:</strong> ${escapeHtml(task.description)}</p>`
-      : '',
-    '<br/>',
-    `<p><a href="${ackUrl}" style="padding:10px 20px;background:#2563eb;color:#fff;text-decoration:none;border-radius:4px;">Acknowledge Task</a></p>`,
-    `<p style="color:#666;font-size:12px;">Or copy this link: ${ackUrl}</p>`,
-  ].join('\n');
 }
 
 // ── Completion email ────────────────────────────────────────────────────────
@@ -118,9 +100,8 @@ export async function sendMailInternal(
     return { messageId };
   }
 
-  const fromAddress = config.email.fromAddress || `noreply@${config.email.domain}`;
   const info = await transporter.sendMail({
-    from: `"${config.email.fromName}" <${fromAddress}>`,
+    from: `"${config.email.fromName}" <${fromAddress()}>`,
     to,
     subject,
     html,
@@ -141,23 +122,8 @@ export async function sendMailInternal(
 
 // ── Public API ──────────────────────────────────────────────────────────────
 
-function resolveRecipient(task: TaskForEmail): string {
-  return (
-    task.assignedUser?.email ||
-    `${task.assignedTeam || config.email.fallbackTeam}@${config.email.domain}`
-  );
-}
-
-export async function sendEmail(task: TaskForEmail): Promise<EmailResult> {
-  const to = resolveRecipient(task);
-  const subject = `[Tilli-go] Task triggered: ${task.taskName}`;
-  const ackUrl = buildAckUrl(task.id);
-  const html = buildTaskEmailHtml(task, ackUrl);
-  return sendMailInternal(to, subject, html, 'EMAIL SENT');
-}
-
-export async function sendCompletionEmail(task: TaskForEmail): Promise<EmailResult> {
-  const to = resolveRecipient(task);
+/** `to` is decided by the caller (the task owner's company address); never guessed here. */
+export async function sendCompletionEmail(task: TaskForEmail, to: string): Promise<EmailResult> {
   const subject = `[Tilli-go] Task ready for completion: ${task.taskName}`;
   const completeUrl = buildCompleteUrl(task.id);
   const html = buildCompletionEmailHtml(task, completeUrl);

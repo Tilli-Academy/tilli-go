@@ -7,17 +7,14 @@ import { buildManagerNotice, buildStartAlert, type AlertTask } from '../services
 import type { EmailJobPayload, EmailProcessorResult } from '../types';
 
 /**
- * email-queue processor.
+ * email-queue processor. Three kinds of email:
+ *   - triggered  → start-time alert to the task owner (one per task)
+ *   - completion → "ready for completion" to the task owner
+ *   - no_owner   → the task is due but has no owner; Release Management is told
  *
- * Flow:
- *   1. Fetch task from DB (with assignedUser for email address)
- *   2. Idempotency: skip if task no longer Triggered
- *   3. Call sendEmail(task) — signs ack token, builds email, sends via nodemailer
- *   4. Audit log
- *
- * Retries are handled by BullMQ (5 attempts, exponential backoff).
- * The jobId "email-{taskId}-triggered" prevents duplicate enqueues.
- * The status check here prevents duplicate sends on retry after partial failure.
+ * Retries are handled by BullMQ (5 attempts, exponential backoff); only a failed
+ * send is retried. The jobId "email-{taskId}-{type}" prevents duplicate enqueues
+ * and the task_alerts row prevents duplicate sends.
  */
 const processor = async (job: Job<EmailJobPayload>): Promise<EmailProcessorResult> => {
   const { taskId, type } = job.data;
@@ -25,71 +22,28 @@ const processor = async (job: Job<EmailJobPayload>): Promise<EmailProcessorResul
 
   log.info('Processing email job');
 
-  // ── 1. Fetch task ────────────────────────────────────────────────────
-  const task = await prisma.task.findUnique({
-    where: { id: taskId },
-    include: {
-      assignedUser: { select: { id: true, email: true, name: true } },
-    },
-  });
-
+  const task = (await prisma.task.findUnique({ where: { id: taskId }, include: ALERT_TASK_INCLUDE })) as
+    | (AlertTask & { status: string })
+    | null;
   if (!task) {
     log.warn('Task not found — skipping email');
     return { status: 'skipped', reason: 'task_not_found' };
   }
 
-  // ── 2. Route by email type ────────────────────────────────────────────
-  if (type === 'completion') {
-    // Completion emails are only sent for Acknowledged tasks
-    if (task.status !== 'Acknowledged') {
-      log.info(
-        { currentStatus: task.status },
-        'Task not Acknowledged — skipping completion email'
-      );
-      return { status: 'skipped', reason: 'status_moved_on' };
-    }
-
-    // Never guess an address from a team name, and only email company addresses.
-    const to = task.assignedUser?.email;
-    if (!to || !domainAllowed(to)) {
-      log.info({ to: to ?? null }, 'No company owner address — skipping completion email');
-      return { status: 'skipped', reason: to ? 'blocked_domain' : 'no_owner' };
-    }
-
-    const result = await sendCompletionEmail(task);
-
-    try {
-      await prisma.auditLog.create({
-        data: {
-          taskId,
-          action: 'SYSTEM_EMAIL_SENT',
-          field: null,
-          oldValue: null,
-          newValue: `type=completion to=${to} messageId=${result.messageId}`,
-        },
-      });
-    } catch (auditErr: unknown) {
-      log.error(
-        { err: auditErr instanceof Error ? auditErr.message : String(auditErr), messageId: result.messageId },
-        'Completion email sent but audit log write failed'
-      );
-    }
-
-    log.info({ messageId: result.messageId }, 'Completion email sent successfully');
-    return { status: 'sent', messageId: result.messageId };
-  }
+  if (type === 'completion') return sendCompletion(task, log);
+  if (type === 'no_owner') return noOwnerNotice(task, log);
 
   // ── Default: start-time alert ───────────────────────────────────────
   if (task.status !== 'Triggered') {
     log.info({ currentStatus: task.status }, 'Task no longer in Triggered state — skipping email');
     return { status: 'skipped', reason: 'status_moved_on' };
   }
-  return sendStartAlert(job, log);
+  return sendStartAlert(job, task, log);
 };
 
 const ALERT_TASK_INCLUDE = {
   assignedUser: { select: { id: true, email: true, name: true } },
-  project: { select: { code: true, name: true } },
+  project: { select: { code: true, name: true, timeZone: true } },
   dependsOn: { select: { dependsOn: { select: { sequenceNumber: true, taskName: true, actualEndTime: true } } } },
 } as const;
 
@@ -124,19 +78,55 @@ async function tellManager(task: AlertTask, reason: 'no_owner' | 'blocked_domain
   }
 }
 
+async function sendCompletion(task: AlertTask & { status: string }, log: typeof logger): Promise<EmailProcessorResult> {
+  // Completion emails are only sent for Acknowledged tasks
+  if (task.status !== 'Acknowledged') {
+    log.info({ currentStatus: task.status }, 'Task not Acknowledged — skipping completion email');
+    return { status: 'skipped', reason: 'status_moved_on' };
+  }
+  // Never guess an address from a team name, and only email company addresses.
+  const to = task.assignedUser?.email;
+  if (!to || !domainAllowed(to)) {
+    log.info({ to: to ?? null }, 'No company owner address — skipping completion email');
+    return { status: 'skipped', reason: to ? 'blocked_domain' : 'no_owner' };
+  }
+  const result = await sendCompletionEmail(task, to);
+  await audit(task.id, 'SYSTEM_EMAIL_SENT', `type=completion to=${to} messageId=${result.messageId}`);
+  log.info({ messageId: result.messageId }, 'Completion email sent successfully');
+  return { status: 'sent', messageId: result.messageId };
+}
+
+/** The scheduler holds a due task that has no owner; tell Release Management once. */
+async function noOwnerNotice(task: AlertTask & { status: string }, log: typeof logger): Promise<EmailProcessorResult> {
+  if (task.assignedUser || task.status !== 'Pending') {
+    log.info('Task has an owner now (or moved on) — no notice needed');
+    return { status: 'skipped', reason: 'owner_assigned' };
+  }
+  const existing = await prisma.taskAlert.findUnique({ where: { taskId: task.id } });
+  if (existing?.status === 'NO_OWNER') return { status: 'skipped', reason: 'already_alerted' };
+  await recordAlert(task.id, { status: 'NO_OWNER', recipient: config.alerts.releaseManager });
+  await audit(task.id, 'ALERT_NO_OWNER', `due but no owner — held, release manager told (${config.alerts.releaseManager})`);
+  await tellManager(task, 'no_owner');
+  return { status: 'sent' };
+}
+
 /**
  * Start-time alert: one email per task to its owner, from the company mailbox.
  *   - no owner            → NO_OWNER, release manager told (never guess an address)
  *   - non-company address → BLOCKED_DOMAIN, release manager told
  *   - send error          → RETRYING (BullMQ retries); on the last attempt FAILED + manager told
  */
-async function sendStartAlert(job: Job<EmailJobPayload>, log: typeof logger): Promise<EmailProcessorResult> {
-  const { taskId } = job.data;
-  const task = (await prisma.task.findUnique({ where: { id: taskId }, include: ALERT_TASK_INCLUDE })) as AlertTask | null;
-  if (!task) return { status: 'skipped', reason: 'task_not_found' };
-
+async function sendStartAlert(job: Job<EmailJobPayload>, task: AlertTask, log: typeof logger): Promise<EmailProcessorResult> {
+  const taskId = task.id;
   const existing = await prisma.taskAlert.findUnique({ where: { taskId } });
-  if (existing && ['SENT', 'ACKNOWLEDGED', 'NO_OWNER', 'BLOCKED_DOMAIN', 'FAILED'].includes(existing.status)) {
+  // A "no owner" or "outside the company" record only counts while it is still true:
+  // once someone (with a company address) is assigned, they get their alert.
+  const stillHandled =
+    !!existing &&
+    (['SENT', 'ACKNOWLEDGED', 'FAILED'].includes(existing.status) ||
+      (existing.status === 'NO_OWNER' && !task.assignedUser) ||
+      (existing.status === 'BLOCKED_DOMAIN' && existing.recipient === task.assignedUser?.email));
+  if (existing && stillHandled) {
     log.info({ alertStatus: existing.status }, 'Alert already handled — one alert per task');
     return { status: 'skipped', reason: 'already_alerted' };
   }

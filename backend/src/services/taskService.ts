@@ -195,6 +195,14 @@ async function update(id: string, data: UpdateTaskDTO, opts: UpdateTaskOptions =
     }
   }
 
+  // A task with no owner cannot start (reviewer decision): it can't be moved to
+  // Triggered/Acknowledged without an owner, and a started task can't lose its owner.
+  const nextStatus = taskFields.status ?? existing.status;
+  const nextOwner = taskFields.assignedUserId !== undefined ? taskFields.assignedUserId : existing.assignedUserId;
+  if (!nextOwner && (nextStatus === TaskStatus.Triggered || nextStatus === TaskStatus.Acknowledged)) {
+    throw new AppError('Assign an owner before this task can start', 400);
+  }
+
   const userId = opts.userId ?? null;
 
   // Changing only the start moves the whole task: the end shifts by the same amount

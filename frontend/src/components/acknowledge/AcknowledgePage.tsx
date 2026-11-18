@@ -3,6 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import api, { getErrorMessage } from '../../services/api';
 import type { AcknowledgeResponse } from '../../types';
+import { whenWithUtc } from '../../utils/zoneTime';
 
 // Confirm page for the start-time alert email.
 // Opening the link only READS (preview) — nothing changes until the owner clicks
@@ -18,19 +19,13 @@ interface Preview {
   plannedEndTime: string | null;
   actualStartTime: string | null;
   projectName: string;
+  timeZone: string;
   assignedUser: { name: string } | null;
   earlierSteps: { code: string; taskName: string; status: string; completedAt: string | null }[];
 }
 
 type View = 'loading' | 'ready' | 'saving' | 'done' | 'error';
 
-function when(s: string | null): string {
-  if (!s) return '—';
-  const d = new Date(s);
-  const local = d.toLocaleString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
-  const utc = d.toLocaleTimeString('en-GB', { timeZone: 'UTC', hour: '2-digit', minute: '2-digit' });
-  return `${local} (${utc} UTC)`;
-}
 
 export default function AcknowledgePage() {
   const [params] = useSearchParams();
@@ -83,7 +78,7 @@ export default function AcknowledgePage() {
         transition={{ duration: 0.4, ease: 'easeOut' }}
         className="bg-surface rounded-card shadow-card p-6 sm:p-8 w-full max-w-[440px]"
       >
-        <h1 className="text-sm font-semibold text-text-secondary tracking-widest uppercase mb-5 text-center">Tilli-go · DeployFlow</h1>
+        <h1 className="text-sm font-semibold text-text-secondary tracking-widest uppercase mb-5 text-center">Tilli-go</h1>
 
         {view === 'loading' && (
           <div className="flex flex-col items-center gap-4">
@@ -99,7 +94,7 @@ export default function AcknowledgePage() {
             <dl className="mt-4 grid grid-cols-[110px_1fr] gap-x-3 gap-y-2 text-sm">
               <dt className="text-text-secondary">Task</dt><dd className="font-semibold text-text-primary">{task.code} · {task.taskName}</dd>
               <dt className="text-text-secondary">Project</dt><dd className="text-text-primary">{task.projectName}</dd>
-              <dt className="text-text-secondary">Planned start</dt><dd className="text-text-primary">{when(task.plannedStartTime)}</dd>
+              <dt className="text-text-secondary">Planned start</dt><dd className="text-text-primary">{whenWithUtc(task.plannedStartTime, task.timeZone)}</dd>
               <dt className="text-text-secondary">Owner</dt><dd className="text-text-primary">{task.assignedUser?.name ?? '—'}{task.assignedTeam ? ` (${task.assignedTeam})` : ''}</dd>
             </dl>
             {task.earlierSteps.length > 0 && (
@@ -136,9 +131,9 @@ export default function AcknowledgePage() {
             <dl className="w-full grid grid-cols-[110px_1fr] gap-x-3 gap-y-2 text-sm text-left mt-2">
               <dt className="text-text-secondary">Task</dt><dd className="text-text-primary">{task?.code ? `${task.code} · ` : ''}{result.taskName}</dd>
               <dt className="text-text-secondary">Status</dt><dd><span className="inline-block px-2 py-0.5 rounded text-xs font-medium bg-violet-100 text-violet-800">{result.status}</span></dd>
-              {result.actualStartTime && (<><dt className="text-text-secondary">Actual start</dt><dd className="text-text-primary">{when(result.actualStartTime)}</dd></>)}
+              {result.actualStartTime && (<><dt className="text-text-secondary">Actual start</dt><dd className="text-text-primary">{whenWithUtc(result.actualStartTime, task?.timeZone ?? 'UTC')}</dd></>)}
             </dl>
-            <p className="text-xs text-text-secondary mt-2">The release manager can now see that you've started. When you finish, mark the task Completed in DeployFlow.</p>
+            <p className="text-xs text-text-secondary mt-2">The release manager can now see that you've started. When you finish, mark the task Completed in Tilli-go.</p>
           </motion.div>
         )}
 

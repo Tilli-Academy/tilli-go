@@ -1,6 +1,6 @@
 import prisma from '../config/prisma';
 import { canTaskExecute, canTasksExecuteBatch } from './dependencyService';
-import { addTaskJob, addCompletionJob } from './queueService';
+import { addTaskJob, addCompletionJob, addNoOwnerJob } from './queueService';
 import logger from '../config/logger';
 import type { SchedulerStats } from '../types';
 
@@ -41,6 +41,7 @@ export async function tick(): Promise<void> {
   let completionEnqueued = 0;
   let blocked = 0;
   let unblocked = 0;
+  let held = 0;
 
   try {
     // ── Phase 1: Unblock ────────────────────────────────────────────────
@@ -97,6 +98,7 @@ export async function tick(): Promise<void> {
         system: true,
         assignedTeam: true,
         assignedUserId: true,
+        alert: { select: { status: true } },
       },
     });
 
@@ -109,7 +111,12 @@ export async function tick(): Promise<void> {
         const depResult = batchResults.get(task.id);
         const executable = depResult?.executable ?? true;
 
-        if (executable) {
+        if (executable && !task.assignedUserId) {
+          // A task with no owner never starts: hold it (stays Pending) and tell
+          // Release Management once. It starts on the first tick after someone is assigned.
+          if (task.alert?.status !== 'NO_OWNER') await addNoOwnerJob(task);
+          held++;
+        } else if (executable) {
           await addTaskJob(task);
           enqueued++;
         } else {
@@ -182,7 +189,7 @@ export async function tick(): Promise<void> {
 
     if (enqueued > 0 || blocked > 0 || unblocked > 0 || completionEnqueued > 0) {
       logger.info(
-        { enqueued, completionEnqueued, blocked, unblocked, durationMs },
+        { enqueued, completionEnqueued, blocked, unblocked, heldNoOwner: held, durationMs },
         'Scheduler tick completed'
       );
     }

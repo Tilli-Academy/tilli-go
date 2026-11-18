@@ -14,7 +14,7 @@ export interface Transition {
   label: string;
   kind: 'forward' | 'back' | 'cancel';
   needsReason: boolean;
-  /** Gated checkpoint: only approver roles may use it. */
+  /** A CR decision: only users with the cr.decide permission may make it. */
   approverOnly?: boolean;
 }
 
@@ -23,10 +23,11 @@ const TRANSITIONS: Record<CrStatus, Transition[]> = {
     { to: 'ASSESS', label: 'Submit for assessment', kind: 'forward', needsReason: false },
     { to: 'CANCELLED', label: 'Cancel', kind: 'cancel', needsReason: true },
   ],
+  // Every way out of Assess is a decision: approve, send back or reject.
   ASSESS: [
     { to: 'SCHEDULED', label: 'Approve & schedule', kind: 'forward', needsReason: false, approverOnly: true },
-    { to: 'NEW', label: 'Send back for changes', kind: 'back', needsReason: true },
-    { to: 'CANCELLED', label: 'Reject / cancel', kind: 'cancel', needsReason: true },
+    { to: 'NEW', label: 'Send back for changes', kind: 'back', needsReason: true, approverOnly: true },
+    { to: 'CANCELLED', label: 'Reject / cancel', kind: 'cancel', needsReason: true, approverOnly: true },
   ],
   SCHEDULED: [
     { to: 'IMPLEMENT', label: 'Start implementation', kind: 'forward', needsReason: false },
@@ -51,13 +52,4 @@ export function transitionsFor(status: string): Transition[] {
 
 export function findTransition(from: string, to: string): Transition | undefined {
   return transitionsFor(from).find((t) => t.to === to);
-}
-
-/** Roles allowed through the approval gate. Tilli-go users are "user" or "admin". */
-export function approverRoles(): string[] {
-  return (process.env.CR_APPROVER_ROLES || 'admin').split(',').map((r) => r.trim()).filter(Boolean);
-}
-
-export function canApprove(role: string): boolean {
-  return approverRoles().includes(role);
 }
