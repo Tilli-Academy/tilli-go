@@ -2,6 +2,22 @@ export type CrStatus = 'NEW' | 'ASSESS' | 'SCHEDULED' | 'IMPLEMENT' | 'REVIEW' |
 
 export interface Person { id: string; name: string; email: string; role: string }
 
+/** A managed-list value (Admin → Lists). */
+export interface ListValue {
+  id: string;
+  label: string;
+  color: string | null;
+  active: boolean;
+  key?: string | null;
+  required?: boolean;
+  sortOrder?: number;
+  /** Admin view only: how many change requests use it */
+  inUse?: number;
+}
+export type ListName = 'change_type' | 'release_type' | 'product' | 'priority' | 'team' | 'supporting_document' | 'risk' | 'decision';
+export type Lists = Record<ListName, ListValue[]>;
+export type DecisionKey = 'APPROVED' | 'REQUEST_INFO' | 'DEFERRED' | 'REJECTED';
+
 export interface CutoverStats { total: number; completed: number; blocked: number }
 
 export interface ChangeRequest {
@@ -9,12 +25,19 @@ export interface ChangeRequest {
   number: number;
   title: string;
   description: string;
-  product: string;
-  changeType: string;
-  releaseType: string;
-  priority: string;
-  impact: string;
+  changeType: ListValue | null;
+  releaseType: ListValue | null;
+  priority: ListValue | null;
+  team: ListValue | null;
+  products: ListValue[];
+  /** LOW | MEDIUM | HIGH (labels/colours from the risk list) */
+  impact: string | null;
   risk: string;
+  datePresented: string | null;
+  codeFreezeDate: string | null;
+  downtimeHours: number | null;
+  decision: DecisionKey | null;
+  decidedAt: string | null;
   customer: string | null;
   labels: string[];
   plannedGoLive: string;
@@ -35,11 +58,11 @@ export interface ChangeRequest {
 
 export interface ChangeListItem extends ChangeRequest { hasConflict: boolean }
 
-export interface Transition { to: CrStatus; label: string; kind: 'forward' | 'back' | 'cancel'; needsReason: boolean; approverOnly?: boolean }
+export interface Transition { to: CrStatus; label: string; kind: 'forward' | 'back' | 'cancel'; needsReason: boolean; permission: string; allowed: boolean }
 
 export interface ChangeEvent {
   id: string;
-  kind: 'CREATED' | 'STATUS' | 'COMMENT' | 'ATTACHMENT' | 'CUTOVER';
+  kind: 'CREATED' | 'STATUS' | 'COMMENT' | 'ATTACHMENT' | 'CUTOVER' | 'EDIT' | 'DECISION' | 'DOCUMENT' | 'LINK';
   fromStatus: CrStatus | null;
   toStatus: CrStatus | null;
   message: string | null;
@@ -58,13 +81,17 @@ export interface ChangeDetail extends ChangeRequest {
   events: ChangeEvent[];
   attachments: Attachment[];
   conflicts: Conflict[];
+  decidedBy: Person | null;
+  documents: { documentTypeId: string; attachmentId: string | null; url: string | null; attachment: { id: string; fileName: string } | null }[];
+  linked: { id: string; number: number; title: string; status: CrStatus }[];
   transitions: Transition[];
-  canApprove: boolean;
+  canDecide: boolean;
+  permissions: string[];
 }
 
 export interface CrMeta {
   users: Person[];
-  options: { products: string[]; changeTypes: string[]; releaseTypes: string[]; priorities: string[]; levels: string[] };
+  permissions: string[];
   approverRoles: string[];
   canApprove: boolean;
 }

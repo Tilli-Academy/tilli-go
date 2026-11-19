@@ -17,6 +17,13 @@ npx playwright install chromium
 
 ## Running Tests
 
+The tests create projects and delete tasks, which need admin permissions. Give the suite
+an account with the `admin` role (for example a demo admin from `npm run db:seed:cr`):
+
+```bash
+export E2E_ADMIN_EMAIL=<admin email> E2E_ADMIN_PASSWORD=<password>
+```
+
 ### Against Local Dev (frontend :3000, API :3001)
 
 ```bash

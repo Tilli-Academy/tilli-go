@@ -21,7 +21,8 @@ export default function ProjectCard({ cr, onChanged }: { cr: ChangeDetail; onCha
   const [form, setForm] = useState({ name: '', code: '', timeZone: 'America/Chicago' });
   const [busy, setBusy] = useState(false);
 
-  const canChange = !LOCKED.includes(cr.status);
+  const canChange = !LOCKED.includes(cr.status) && cr.permissions.includes('cr.edit');
+  const canCreate = cr.permissions.includes('project.manage');
   const project = cr.project;
   const others = project?.changeRequests?.filter((c) => c.id !== cr.id) ?? [];
   const pct = cr.cutover && cr.cutover.total ? Math.round((cr.cutover.completed / cr.cutover.total) * 100) : 0;
@@ -108,7 +109,7 @@ export default function ProjectCard({ cr, onChanged }: { cr: ChangeDetail; onCha
                 </select>
               </div>
               <button type="submit" disabled={busy || !pick} className={btnPrimary}>Link</button>
-              <button type="button" onClick={() => setMode('create')} className={btnGhost}>+ New project</button>
+              {canCreate && <button type="button" onClick={() => setMode('create')} className={btnGhost}>+ New project</button>}
               {project && <button type="button" disabled={busy} onClick={() => void save({ projectId: null }, 'Removed from project')} className={`${btnGhost} !text-rose-600`}>Remove</button>}
               {project && <button type="button" onClick={() => setMode('view')} className={btnGhost}>Cancel</button>}
             </form>

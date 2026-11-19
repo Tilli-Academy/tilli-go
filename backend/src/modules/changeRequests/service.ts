@@ -3,13 +3,36 @@ import prisma from '../../config/prisma';
 import logger from '../../config/logger';
 import { AppError } from '../../utils/errors';
 import type { JwtPayload } from '../../types';
-import { OPEN_STATUSES, findTransition, transitionsFor } from './workflow';
-import { hasPermission, rolesWith } from '../auth/permissions';
-import type { CreateChangeDTO } from './validators';
+import { DECISIONS, FINISHED, OPEN_STATUSES, findTransition, transitionsFor, type Decision } from './workflow';
+import { assertPermission, hasPermission, permissionsFor, rolesWith } from '../auth/permissions';
+import { assertValues } from '../lists/service';
+import type { CreateChangeDTO, UpdateChangeDTO } from './validators';
 import * as storage from './storage';
-import { CHANGE_TYPES, LEVELS, PRIORITIES, PRODUCTS, RELEASE_TYPES } from './options';
 
 const PERSON = { select: { id: true, name: true, email: true, role: true } } as const;
+const VALUE = { select: { id: true, label: true, color: true, active: true } } as const;
+
+/** List values as plain objects on the CR (changeType, releaseType, priority, team, products). */
+const LIST_INCLUDE = {
+  changeTypeRef: VALUE,
+  releaseTypeRef: VALUE,
+  priorityRef: VALUE,
+  team: VALUE,
+  products: { select: { product: VALUE } },
+} as const;
+
+type WithLists = Prisma.ChangeRequestGetPayload<{ include: typeof LIST_INCLUDE }>;
+
+function shape<T extends WithLists>(r: T) {
+  const { changeTypeRef, releaseTypeRef, priorityRef, products, product: _p, changeType: _c, releaseType: _r, priority: _pr, ...rest } = r;
+  return {
+    ...rest,
+    changeType: changeTypeRef,
+    releaseType: releaseTypeRef,
+    priority: priorityRef,
+    products: products.map((p) => p.product),
+  };
+}
 
 export interface ListFilters {
   status?: string;
@@ -39,7 +62,7 @@ const dayKey = (d: Date) => d.toISOString().slice(0, 10);
 export async function list(filters: ListFilters, user: JwtPayload) {
   const where: Prisma.ChangeRequestWhereInput = {};
   if (filters.status) where.status = filters.status;
-  if (filters.product) where.product = filters.product;
+  if (filters.product) where.products = { some: { productId: filters.product } };
   if (filters.mine) where.assigneeId = user.id;
   if (filters.projectId) where.projectId = filters.projectId;
   if (filters.q) {
@@ -51,25 +74,26 @@ export async function list(filters: ListFilters, user: JwtPayload) {
   }
   const rows = await prisma.changeRequest.findMany({
     where,
-    include: { assignee: PERSON, project: { select: { id: true, code: true } } },
+    include: { ...LIST_INCLUDE, assignee: PERSON, project: { select: { id: true, code: true } } },
     orderBy: { plannedGoLive: 'asc' },
     take: 500,
   });
 
-  // Conflicts are computed across ALL open CRs, not just the filtered page.
+  // Same-day conflicts: open CRs sharing at least one product on the same go-live day.
+  // Computed across ALL open CRs, not just the filtered page.
   const open = await prisma.changeRequest.findMany({
     where: { status: { in: OPEN_STATUSES } },
-    select: { id: true, product: true, plannedGoLive: true },
+    select: { id: true, plannedGoLive: true, products: { select: { productId: true } } },
   });
   const tally = new Map<string, number>();
-  for (const c of open) tally.set(`${c.product}|${dayKey(c.plannedGoLive)}`, (tally.get(`${c.product}|${dayKey(c.plannedGoLive)}`) ?? 0) + 1);
+  for (const c of open) for (const p of c.products) tally.set(`${p.productId}|${dayKey(c.plannedGoLive)}`, (tally.get(`${p.productId}|${dayKey(c.plannedGoLive)}`) ?? 0) + 1);
   const openIds = new Set(open.map((c) => c.id));
 
   const stats = await cutoverStats(rows.flatMap((r) => (r.projectId ? [r.projectId] : [])));
   const data = rows
     .map((r) => ({
-      ...r,
-      hasConflict: openIds.has(r.id) && (tally.get(`${r.product}|${dayKey(r.plannedGoLive)}`) ?? 0) > 1,
+      ...shape(r),
+      hasConflict: openIds.has(r.id) && r.products.some((p) => (tally.get(`${p.product.id}|${dayKey(r.plannedGoLive)}`) ?? 0) > 1),
       cutover: r.projectId ? stats[r.projectId] ?? { total: 0, completed: 0, blocked: 0 } : null,
     }))
     .filter((r) => !filters.conflictsOnly || r.hasConflict);
@@ -78,13 +102,15 @@ export async function list(filters: ListFilters, user: JwtPayload) {
   return { data, counts: Object.fromEntries(counts.map((c) => [c.status, c._count])) };
 }
 
-export async function findConflicts(product: string, date: Date, excludeId?: string) {
+/** Open CRs going live the same (UTC) day that share at least one of these products. */
+export async function findConflicts(productIds: string[], date: Date, excludeId?: string) {
+  if (productIds.length === 0) return [];
   const start = new Date(date);
   start.setUTCHours(0, 0, 0, 0);
   const end = new Date(start.getTime() + 86400000);
   return prisma.changeRequest.findMany({
     where: {
-      product,
+      products: { some: { productId: { in: productIds } } },
       plannedGoLive: { gte: start, lt: end },
       status: { in: OPEN_STATUSES },
       ...(excludeId ? { id: { not: excludeId } } : {}),
@@ -98,9 +124,11 @@ export async function getById(id: string, user: JwtPayload) {
   const cr = await prisma.changeRequest.findUnique({
     where: { id },
     include: {
+      ...LIST_INCLUDE,
       assignee: PERSON,
       reporter: PERSON,
       approvedBy: PERSON,
+      decidedBy: PERSON,
       project: {
         select: {
           id: true, code: true, name: true, timeZone: true,
@@ -109,19 +137,27 @@ export async function getById(id: string, user: JwtPayload) {
       },
       events: { include: { actor: PERSON }, orderBy: { createdAt: 'desc' } },
       attachments: { orderBy: { createdAt: 'desc' } },
+      documents: { select: { documentTypeId: true, attachmentId: true, url: true, createdAt: true, attachment: { select: { id: true, fileName: true } } } },
+      linksFrom: { select: { to: { select: { id: true, number: true, title: true, status: true } } } },
+      linksTo: { select: { from: { select: { id: true, number: true, title: true, status: true } } } },
     },
   });
   if (!cr) throw new AppError('Change request not found', 404);
-  const [conflicts, stats] = await Promise.all([
-    ['CLOSED', 'CANCELLED'].includes(cr.status) ? [] : findConflicts(cr.product, cr.plannedGoLive, cr.id),
+  const [conflicts, stats, permissions] = await Promise.all([
+    FINISHED.includes(cr.status) ? [] : findConflicts(cr.products.map((p) => p.product.id), cr.plannedGoLive, cr.id),
     cutoverStats(cr.projectId ? [cr.projectId] : []),
+    permissionsFor(user),
   ]);
+  const { linksFrom, linksTo, ...rest } = cr;
+  const can = (p: string) => (permissions as string[]).includes(p);
   return {
-    ...cr,
+    ...shape(rest as typeof cr),
+    linked: [...linksFrom.map((l) => l.to), ...linksTo.map((l) => l.from)].sort((a, b) => a.number - b.number),
     conflicts,
     cutover: cr.projectId ? stats[cr.projectId] ?? { total: 0, completed: 0, blocked: 0 } : null,
-    transitions: transitionsFor(cr.status),
-    canApprove: hasPermission(user, 'cr.decide'),
+    transitions: transitionsFor(cr.status).map((t) => ({ ...t, allowed: can(t.permission) })),
+    canDecide: cr.status === 'ASSESS' && can('cr.decide'),
+    permissions,
   };
 }
 
@@ -131,9 +167,12 @@ export async function create(dto: CreateChangeDTO, user: JwtPayload) {
   if (dto.projectId && !(await prisma.project.findUnique({ where: { id: dto.projectId }, select: { id: true } }))) {
     throw new AppError('Project not found', 400);
   }
+  await checkListValues(dto);
+  const { productIds, ...data } = dto;
   const cr = await prisma.changeRequest.create({
     data: {
-      ...dto,
+      ...data,
+      products: { create: [...new Set(productIds)].map((productId) => ({ productId })) },
       events: { create: { kind: 'CREATED', toStatus: 'NEW', actorId: user.id, message: 'created the change request' } },
     },
   });
@@ -141,17 +180,82 @@ export async function create(dto: CreateChangeDTO, user: JwtPayload) {
   return cr;
 }
 
+/** New choices must be active values of the right list; a CR may keep an old (inactive) one. */
+async function checkListValues(dto: Partial<UpdateChangeDTO>, current?: WithLists) {
+  const keep = current
+    ? [current.changeTypeId, current.releaseTypeId, current.priorityId, current.teamId, ...current.products.map((p) => p.product.id)].filter(
+        (x): x is string => !!x,
+      )
+    : [];
+  await assertValues('change_type', dto.changeTypeId ? [dto.changeTypeId] : [], keep);
+  await assertValues('release_type', dto.releaseTypeId ? [dto.releaseTypeId] : [], keep);
+  await assertValues('priority', dto.priorityId ? [dto.priorityId] : [], keep);
+  await assertValues('team', dto.teamId ? [dto.teamId] : [], keep);
+  await assertValues('product', dto.productIds ?? [], keep);
+}
+
+const LABELS: Record<string, string> = {
+  title: 'title', description: 'description', changeTypeId: 'change type', releaseTypeId: 'release type', priorityId: 'priority',
+  teamId: 'team', productIds: 'products', risk: 'risk', impact: 'impact', customer: 'customer', labels: 'labels',
+  plannedGoLive: 'deployment date', dueDate: 'due date', datePresented: 'date presented', codeFreezeDate: 'code freeze date',
+  downtimeHours: 'downtime', needsCutover: 'cutover needed', assigneeId: 'assignee',
+};
+
+export async function update(id: string, dto: UpdateChangeDTO, user: JwtPayload) {
+  const cr = await prisma.changeRequest.findUnique({ where: { id }, include: LIST_INCLUDE });
+  if (!cr) throw new AppError('Change request not found', 404);
+  if (FINISHED.includes(cr.status)) throw new AppError('This change request is finished', 409);
+  // The go-live date is what CAB approved: after approval it changes only by sending the CR back.
+  if (dto.plannedGoLive && dto.plannedGoLive.getTime() !== cr.plannedGoLive.getTime() && !['NEW', 'ASSESS'].includes(cr.status)) {
+    throw new AppError('The deployment date is locked once approved - send the change back to change it', 409);
+  }
+  if (dto.assigneeId && !(await prisma.user.findUnique({ where: { id: dto.assigneeId }, select: { id: true } }))) {
+    throw new AppError('Assignee not found', 400);
+  }
+  await checkListValues(dto, cr);
+
+  const { productIds, ...fields } = dto;
+  const before = cr as unknown as Record<string, unknown>;
+  const changed = Object.entries(fields)
+    .filter(([k, v]) => {
+      const old = before[k];
+      if (v instanceof Date) return !(old instanceof Date) || old.getTime() !== v.getTime();
+      if (Array.isArray(v)) return JSON.stringify(v) !== JSON.stringify(old);
+      return v !== old;
+    })
+    .map(([k]) => k);
+  const oldProducts = cr.products.map((p) => p.product.id).sort();
+  const newProducts = productIds ? [...new Set(productIds)].sort() : oldProducts;
+  const productsChanged = JSON.stringify(oldProducts) !== JSON.stringify(newProducts);
+  if (productsChanged) changed.push('productIds');
+  if (changed.length === 0) return cr;
+
+  await prisma.$transaction(async (tx) => {
+    await tx.changeRequest.update({ where: { id }, data: fields });
+    if (productsChanged) {
+      await tx.changeProduct.deleteMany({ where: { changeRequestId: id } });
+      await tx.changeProduct.createMany({ data: newProducts.map((productId) => ({ changeRequestId: id, productId })) });
+    }
+    await tx.changeEvent.create({
+      data: { changeRequestId: id, kind: 'EDIT', actorId: user.id, message: `changed ${changed.map((k) => LABELS[k] ?? k).join(', ')}` },
+    });
+  });
+  logger.info({ crId: id, fields: changed }, 'Change request edited');
+  return prisma.changeRequest.findUniqueOrThrow({ where: { id } });
+}
+
 export async function transition(id: string, to: string, reason: string | undefined, user: JwtPayload) {
   const cr = await prisma.changeRequest.findUnique({ where: { id } });
   if (!cr) throw new AppError('Change request not found', 404);
+  if (cr.status === 'ASSESS' && to !== 'CANCELLED') {
+    throw new AppError('Leaving Assess is a CAB decision: Approve, Request more info, Defer or Reject', 409);
+  }
   const t = findTransition(cr.status, to);
   if (!t) throw new AppError(`Cannot move from ${cr.status} to ${to}`, 409);
-  if (t.approverOnly && !hasPermission(user, 'cr.decide')) {
-    throw new AppError('Only approvers can approve, send back or reject a change request', 403);
-  }
+  await assertPermission(user, t.permission);
   if (t.needsReason && (!reason || reason.length < 5)) throw new AppError('Please give a short reason (5+ characters)', 400);
 
-  // Gates tied to the cutover plan (the existing Tilli-go project).
+  // Gates tied to the project's cutover plan.
   // Implement needs a plan: a project with at least one task.
   if (to === 'IMPLEMENT' && cr.needsCutover) {
     if (!cr.projectId) throw new AppError('Pick or create the project before starting implementation', 409);
@@ -165,32 +269,77 @@ export async function transition(id: string, to: string, reason: string | undefi
     }
   }
 
-  const approving = cr.status === 'ASSESS' && to === 'SCHEDULED';
-  // Going back before "Scheduled" voids the approval - it must pass the gate again.
-  const voidApproval = to === 'ASSESS' || to === 'NEW';
+  // Going back to Assess voids the approval - it must pass CAB again.
+  const voidApproval = to === 'ASSESS';
+  const [updated] = await prisma.$transaction([
+    prisma.changeRequest.update({
+      where: { id },
+      data: { status: to, ...(voidApproval ? { approvedById: null, approvedAt: null, decision: null, decidedAt: null, decidedById: null } : {}) },
+    }),
+    prisma.changeEvent.create({
+      data: { changeRequestId: id, kind: 'STATUS', fromStatus: cr.status, toStatus: to, actorId: user.id, message: reason || null },
+    }),
+  ]);
+  logger.info({ crId: id, from: cr.status, to, by: user.id }, 'Change request status changed');
+  return updated;
+}
 
+/** CAB decision on a CR in Assess (cr.decide only). */
+export async function decide(id: string, decision: Decision, reason: string | undefined, datePresented: Date | undefined, user: JwtPayload) {
+  await assertPermission(user, 'cr.decide', 'Only approvers can make a CAB decision');
+  const cr = await prisma.changeRequest.findUnique({ where: { id } });
+  if (!cr) throw new AppError('Change request not found', 404);
+  if (cr.status !== 'ASSESS') throw new AppError('Decisions are made while the change is in Assess', 409);
+  const rule = DECISIONS[decision];
+  if (rule.needsReason && (!reason || reason.length < 5)) throw new AppError('Please give a short reason (5+ characters)', 400);
+
+  if (decision === 'DEFERRED') {
+    const today = new Date();
+    today.setUTCHours(0, 0, 0, 0);
+    const floor = cr.datePresented && cr.datePresented > today ? cr.datePresented : today;
+    if (!datePresented || datePresented <= floor) throw new AppError('Deferred needs a later CAB date (Date Presented)', 400);
+  }
+  if (decision === 'APPROVED') {
+    const missing = await missingRequiredDocuments(id);
+    if (missing.length) throw new AppError(`Attach the required documents first: ${missing.join(', ')}`, 409);
+  }
+
+  const now = new Date();
+  const label = (await prisma.listValue.findUnique({ where: { list_key: { list: 'decision', key: decision } } }))?.label ?? decision;
   const [updated] = await prisma.$transaction([
     prisma.changeRequest.update({
       where: { id },
       data: {
-        status: to,
-        ...(approving ? { approvedById: user.id, approvedAt: new Date() } : {}),
-        ...(voidApproval ? { approvedById: null, approvedAt: null } : {}),
+        status: rule.to,
+        decision,
+        decidedAt: now,
+        decidedById: user.id,
+        ...(decision === 'APPROVED' ? { approvedById: user.id, approvedAt: now } : { approvedById: null, approvedAt: null }),
+        ...(decision === 'DEFERRED' ? { datePresented } : {}),
       },
     }),
     prisma.changeEvent.create({
       data: {
         changeRequestId: id,
-        kind: 'STATUS',
+        kind: rule.to === cr.status ? 'DECISION' : 'STATUS',
         fromStatus: cr.status,
-        toStatus: to,
+        toStatus: rule.to === cr.status ? null : rule.to,
         actorId: user.id,
-        message: reason || (approving ? 'approved for production' : null),
+        message: [label, decision === 'DEFERRED' ? `to CAB on ${dayKey(datePresented!)}` : null, reason].filter(Boolean).join(' - '),
       },
     }),
   ]);
-  logger.info({ crId: id, from: cr.status, to, by: user.id }, 'Change request status changed');
+  logger.info({ crId: id, decision, by: user.id }, 'CAB decision');
   return updated;
+}
+
+async function missingRequiredDocuments(id: string): Promise<string[]> {
+  const [required, docs] = await Promise.all([
+    prisma.listValue.findMany({ where: { list: 'supporting_document', active: true, required: true }, orderBy: { sortOrder: 'asc' } }),
+    prisma.changeDocument.findMany({ where: { changeRequestId: id }, select: { documentTypeId: true, attachmentId: true, url: true } }),
+  ]);
+  const have = new Set(docs.filter((d) => d.attachmentId || d.url).map((d) => d.documentTypeId));
+  return required.filter((r) => !have.has(r.id)).map((r) => r.label);
 }
 
 export async function addComment(id: string, message: string, user: JwtPayload) {
@@ -210,11 +359,12 @@ export type ProjectChoice =
 
 /**
  * A project groups one or more change requests (e.g. a release wave) and owns the
- * optional cutover: its task plan. A CR picks an existing project, creates a new one,
- * or (before implementation) leaves its project. The CR row is locked so two clicks
- * can't create two projects.
+ * optional cutover: its task plan. A CR picks an existing project (cr.edit), creates a
+ * new one (also needs project.manage) or, before implementation, leaves its project.
+ * The CR row is locked so two clicks can't create two projects.
  */
 export async function setProject(id: string, choice: ProjectChoice, user: JwtPayload) {
+  if ('create' in choice) await assertPermission(user, 'project.manage', 'Only project managers can create projects');
   const result = await prisma.$transaction(async (tx) => {
     const locked = await tx.$queryRaw<Array<{ id: string }>>`SELECT id FROM "change_requests" WHERE id = ${id} FOR UPDATE`;
     if (locked.length === 0) throw new AppError('Change request not found', 404);
@@ -244,6 +394,79 @@ export async function setProject(id: string, choice: ProjectChoice, user: JwtPay
   return result.project;
 }
 
+// ── Supporting documents ────────────────────────────────────────────────────
+
+export async function setDocument(id: string, documentTypeId: string, body: { attachmentId: string } | { url: string }, user: JwtPayload) {
+  const cr = await editable(id);
+  const type = await prisma.listValue.findUnique({ where: { id: documentTypeId } });
+  if (!type || type.list !== 'supporting_document') throw new AppError('Unknown document type', 404);
+  if ('attachmentId' in body) {
+    const att = await prisma.changeAttachment.findFirst({ where: { id: body.attachmentId, changeRequestId: id } });
+    if (!att) throw new AppError('Attachment not found on this change request', 400);
+  }
+  const data = 'attachmentId' in body ? { attachmentId: body.attachmentId, url: null } : { url: body.url, attachmentId: null };
+  await prisma.$transaction([
+    prisma.changeDocument.upsert({
+      where: { changeRequestId_documentTypeId: { changeRequestId: id, documentTypeId } },
+      create: { changeRequestId: id, documentTypeId, addedById: user.id, ...data },
+      update: { ...data, addedById: user.id },
+    }),
+    prisma.changeEvent.create({ data: { changeRequestId: cr.id, kind: 'DOCUMENT', actorId: user.id, message: `added ${type.label}` } }),
+  ]);
+}
+
+export async function removeDocument(id: string, documentTypeId: string, user: JwtPayload) {
+  await editable(id);
+  const doc = await prisma.changeDocument.findUnique({
+    where: { changeRequestId_documentTypeId: { changeRequestId: id, documentTypeId } },
+    include: { documentType: { select: { label: true } } },
+  });
+  if (!doc) return;
+  await prisma.$transaction([
+    prisma.changeDocument.delete({ where: { id: doc.id } }),
+    prisma.changeEvent.create({ data: { changeRequestId: id, kind: 'DOCUMENT', actorId: user.id, message: `removed ${doc.documentType.label}` } }),
+  ]);
+}
+
+// ── Linked change requests ──────────────────────────────────────────────────
+
+export async function addLink(id: string, number: number, user: JwtPayload) {
+  const cr = await editable(id);
+  const other = await prisma.changeRequest.findUnique({ where: { number }, select: { id: true, number: true } });
+  if (!other) throw new AppError(`CR-${number} not found`, 404);
+  if (other.id === id) throw new AppError('A change request cannot link to itself', 400);
+  const exists = await prisma.changeLink.findFirst({ where: { OR: [{ fromId: id, toId: other.id }, { fromId: other.id, toId: id }] } });
+  if (exists) return;
+  await prisma.$transaction([
+    prisma.changeLink.create({ data: { fromId: id, toId: other.id } }),
+    prisma.changeEvent.create({ data: { changeRequestId: id, kind: 'LINK', actorId: user.id, message: `linked CR-${other.number}` } }),
+    prisma.changeEvent.create({ data: { changeRequestId: other.id, kind: 'LINK', actorId: user.id, message: `linked CR-${cr.number}` } }),
+  ]);
+}
+
+export async function removeLink(id: string, otherId: string, user: JwtPayload) {
+  const cr = await editable(id);
+  const other = await prisma.changeRequest.findUnique({ where: { id: otherId }, select: { id: true, number: true } });
+  const { count } = await prisma.changeLink.deleteMany({ where: { OR: [{ fromId: id, toId: otherId }, { fromId: otherId, toId: id }] } });
+  if (count && other) {
+    await prisma.changeEvent.createMany({
+      data: [
+        { changeRequestId: id, kind: 'LINK', actorId: user.id, message: `unlinked CR-${other.number}` },
+        { changeRequestId: other.id, kind: 'LINK', actorId: user.id, message: `unlinked CR-${cr.number}` },
+      ],
+    });
+  }
+}
+
+async function editable(id: string) {
+  const cr = await prisma.changeRequest.findUnique({ where: { id }, select: { id: true, number: true, status: true } });
+  if (!cr) throw new AppError('Change request not found', 404);
+  if (FINISHED.includes(cr.status)) throw new AppError('This change request is finished', 409);
+  return cr;
+}
+
+// ── Attachments ─────────────────────────────────────────────────────────────
+
 const MAX_BYTES = 10 * 1024 * 1024;
 
 export async function addAttachment(id: string, fileName: string, mimeType: string, data: Buffer, user: JwtPayload) {
@@ -268,13 +491,12 @@ export async function readAttachment(crId: string, attachmentId: string) {
 }
 
 export async function meta(user: JwtPayload) {
-  const users = await prisma.user.findMany({ ...PERSON, orderBy: { name: 'asc' } });
-  return {
-    users,
-    options: { products: PRODUCTS, changeTypes: CHANGE_TYPES, releaseTypes: RELEASE_TYPES, priorities: PRIORITIES, levels: LEVELS },
-    approverRoles: rolesWith('cr.decide'),
-    canApprove: hasPermission(user, 'cr.decide'),
-  };
+  const [users, permissions, approverRoles] = await Promise.all([
+    prisma.user.findMany({ ...PERSON, orderBy: { name: 'asc' } }),
+    permissionsFor(user),
+    rolesWith('cr.decide'),
+  ]);
+  return { users, permissions, approverRoles, canApprove: await hasPermission(user, 'cr.decide') };
 }
 
 async function ensureExists(id: string) {

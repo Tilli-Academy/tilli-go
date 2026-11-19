@@ -31,6 +31,19 @@ async function main(): Promise<void> {
   await prisma.$executeRawUnsafe(`ALTER SEQUENCE "change_requests_number_seq" RESTART WITH 1001`);
 
   type Step = { to: string; by: string; daysAgo: number; msg?: string };
+
+  // Managed-list values (Admin → Lists). The migration creates the standard ones;
+  // demo products and teams are added here if missing.
+  async function value(list: string, label: string) {
+    const found = await prisma.listValue.findFirst({ where: { list, label } });
+    if (found) return found.id;
+    const last = await prisma.listValue.aggregate({ where: { list }, _max: { sortOrder: true } });
+    return (await prisma.listValue.create({ data: { list, label, sortOrder: (last._max.sortOrder ?? 0) + 1 } })).id;
+  }
+  const RELEASE: Record<string, string> = { 'Major release': 'Major', 'Minor release': 'Minor', Hotfix: 'Minor', Configuration: 'Minor' };
+  const TEAM: Record<string, string> = { Nudge: 'Integrations', 'Tilli-go': 'Platform', 'Quality System': 'QA', 'Internal Tools': 'Platform' };
+  const CAB_DAY = 2; // next CAB meeting, days from today
+
   async function cr(d: {
     title: string; description: string; product: string; changeType?: string; releaseType: string; priority: string;
     impact: string; risk: string; customer?: string; labels?: string[]; goLive: number; needsCutover?: boolean;
@@ -39,14 +52,24 @@ async function main(): Promise<void> {
     const path = d.path ?? [];
     const last = path.map((s) => s.to).lastIndexOf('SCHEDULED');
     const approval = last >= 0 && !path.slice(last + 1).some((s) => s.to === 'ASSESS' || s.to === 'NEW') ? path[last] : undefined;
+    const status = path.length ? path[path.length - 1]!.to : 'NEW';
     const c = await prisma.changeRequest.create({
       data: {
-        title: d.title, description: d.description, product: d.product, changeType: d.changeType ?? 'Normal',
-        releaseType: d.releaseType, priority: d.priority, impact: d.impact, risk: d.risk, customer: d.customer,
+        title: d.title, description: d.description,
+        changeTypeId: await value('change_type', d.changeType === 'Emergency' ? 'Emergency Fix' : 'Product Enhancement'),
+        releaseTypeId: await value('release_type', RELEASE[d.releaseType] ?? 'Minor'),
+        priorityId: await value('priority', d.priority),
+        teamId: await value('team', TEAM[d.product] ?? 'Platform'),
+        products: { create: [{ productId: await value('product', d.product) }] },
+        impact: d.impact.toUpperCase(), risk: d.risk.toUpperCase(), customer: d.customer,
         labels: d.labels ?? [], plannedGoLive: day(d.goLive), needsCutover: d.needsCutover ?? true,
-        status: path.length ? path[path.length - 1]!.to : 'NEW',
+        datePresented: status === 'ASSESS' ? day(CAB_DAY) : approval ? ago(approval.daysAgo + 1) : null,
+        codeFreezeDate: d.goLive > 2 ? day(d.goLive - 2) : null,
+        downtimeHours: d.needsCutover === false ? null : 0.5,
+        status,
         assigneeId: d.assigneeId, reporterId: d.reporterId,
         approvedById: approval?.by, approvedAt: approval ? ago(approval.daysAgo) : undefined,
+        decision: approval ? 'APPROVED' : null, decidedById: approval?.by, decidedAt: approval ? ago(approval.daysAgo) : undefined,
         createdAt: ago(d.createdDaysAgo),
       },
     });
@@ -54,7 +77,7 @@ async function main(): Promise<void> {
     let from = 'NEW';
     for (const s of path) {
       await prisma.changeEvent.create({
-        data: { changeRequestId: c.id, kind: 'STATUS', fromStatus: from, toStatus: s.to, actorId: s.by, message: s.msg ?? (s.to === 'SCHEDULED' && from === 'ASSESS' ? 'approved for production' : null), createdAt: ago(s.daysAgo) },
+        data: { changeRequestId: c.id, kind: 'STATUS', fromStatus: from, toStatus: s.to, actorId: s.by, message: s.msg ?? (s.to === 'SCHEDULED' && from === 'ASSESS' ? 'Approved' : null), createdAt: ago(s.daysAgo) },
       });
       from = s.to;
     }
@@ -152,6 +175,9 @@ async function main(): Promise<void> {
   ]);
   await comment(c2.id, rahul.id, 'Acme confirmed their sandbox API credentials work. Production keys shared via the vault.', 6);
   await comment(c2.id, arjun.id, 'UAT passed on the quality environment - 42/42 test cases green.', 2);
+  for (const [doc, url] of [['Release Notes', 'https://example.com/release-notes/nudge-4-2'], ['Rollback Plan', 'https://example.com/runbooks/nudge-rollback']] as const) {
+    await prisma.changeDocument.create({ data: { changeRequestId: c2.id, documentTypeId: await value('supporting_document', doc), url, addedById: priya.id } });
+  }
 
   const c3 = await cr({
     title: 'Tilli-go - move email reminders to delayed jobs', product: 'Tilli-go', releaseType: 'Minor release', priority: 'Medium',

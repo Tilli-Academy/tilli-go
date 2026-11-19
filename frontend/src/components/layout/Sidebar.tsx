@@ -8,9 +8,11 @@ import {
   UserIcon,
   LogOutIcon,
   ChevronLeftIcon,
+  SettingsIcon,
 } from "../dashboard/DashboardIcons";
 import type { IconProps } from "../dashboard/DashboardIcons";
 import "./sidebar.css";
+import { usePermissions } from "../../hooks/usePermissions";
 
 interface NavItem {
   to: string;
@@ -18,13 +20,15 @@ interface NavItem {
   icon: (p: IconProps) => React.ReactElement;
 }
 
-const navItems: NavItem[] = [
+const baseItems: NavItem[] = [
   // Change requests are the top level; a CR's tasks are opened from the CR itself.
   { to: "/change-requests", label: "Change Requests", icon: FlagIcon },
   { to: "/timeline", label: "Timeline", icon: CalendarIcon },
   { to: "/dashboard", label: "Dashboard", icon: LayoutGridIcon },
   { to: "/profile", label: "Profile", icon: UserIcon },
 ];
+// Shown only to users with an admin permission.
+const adminItem: NavItem = { to: "/admin", label: "Admin", icon: SettingsIcon };
 
 // Same test NavLink uses for `isActive` (case-insensitive; `end` only for /dashboard).
 // Only used to place the sliding indicator; the item styles still come from NavLink.
@@ -68,6 +72,8 @@ interface SidebarProps {
 export default function Sidebar({ isCollapsed, isMobileOpen, onToggleCollapse, onCloseMobile }: SidebarProps) {
   const navigate = useNavigate();
   const { pathname } = useLocation();
+  const { can } = usePermissions();
+  const navItems = can("admin.lists") ? [...baseItems, adminItem] : baseItems;
 
   const activeIndex = navItems.findIndex((item) =>
     isNavActive(pathname, item.to, item.to === "/dashboard")

@@ -26,6 +26,7 @@ model User {
   crAssigned          ChangeRequest[] @relation("CrAssignee")
   crReported          ChangeRequest[] @relation("CrReporter")
   crApproved          ChangeRequest[] @relation("CrApprover")
+  crDecided           ChangeRequest[] @relation("CrDecider")
   crEvents            ChangeEvent[]
 
   @@unique([oauthProvider, oauthId])
@@ -117,39 +118,142 @@ model AuditLog {
 // Its optional cutover plan is an ordinary Tilli-go Project, so the existing
 // task grid, scheduler and email worker run the go-live unchanged.
 model ChangeRequest {
-  id            String             @id @default(uuid())
-  number        Int                @unique @default(autoincrement())
-  title         String
-  description   String             @db.Text
-  product       String
-  changeType    String             @map("change_type")
-  releaseType   String             @map("release_type")
-  priority      String
-  impact        String
-  risk          String
-  customer      String?
-  labels        String[]           @default([])
-  plannedGoLive DateTime           @map("planned_go_live")
-  dueDate       DateTime?          @map("due_date")
-  needsCutover  Boolean            @default(true) @map("needs_cutover")
-  status        String             @default("NEW")
-  assigneeId    String             @map("assignee_id")
-  assignee      User               @relation("CrAssignee", fields: [assigneeId], references: [id])
-  reporterId    String             @map("reporter_id")
-  reporter      User               @relation("CrReporter", fields: [reporterId], references: [id])
-  approvedById  String?            @map("approved_by_id")
-  approvedBy    User?              @relation("CrApprover", fields: [approvedById], references: [id])
-  approvedAt    DateTime?          @map("approved_at")
-  projectId     String?            @map("project_id")
-  project       Project?           @relation(fields: [projectId], references: [id], onDelete: SetNull)
-  createdAt     DateTime           @default(now()) @map("created_at")
-  updatedAt     DateTime           @updatedAt @map("updated_at")
-  events        ChangeEvent[]
-  attachments   ChangeAttachment[]
+  id             String             @id @default(uuid())
+  number         Int                @unique @default(autoincrement())
+  title          String
+  description    String             @db.Text
+  // Managed-list values (admin-configurable rows with stable ids).
+  changeTypeId   String?            @map("change_type_id")
+  changeTypeRef  ListValue?         @relation("CrChangeType", fields: [changeTypeId], references: [id], onDelete: Restrict)
+  releaseTypeId  String?            @map("release_type_id")
+  releaseTypeRef ListValue?         @relation("CrReleaseType", fields: [releaseTypeId], references: [id], onDelete: Restrict)
+  priorityId     String?            @map("priority_id")
+  priorityRef    ListValue?         @relation("CrPriority", fields: [priorityId], references: [id], onDelete: Restrict)
+  teamId         String?            @map("team_id")
+  team           ListValue?         @relation("CrTeam", fields: [teamId], references: [id], onDelete: Restrict)
+  products       ChangeProduct[]
+  // Fixed keys LOW | MEDIUM | HIGH (labels and colours come from the "risk" list).
+  risk           String
+  impact         String?
+  // Before managed lists these were free text. Kept (read-only) so old data stays intact.
+  product        String?
+  changeType     String?            @map("change_type")
+  releaseType    String?            @map("release_type")
+  priority       String?
+  customer       String?
+  labels         String[]           @default([])
+  plannedGoLive  DateTime           @map("planned_go_live")
+  dueDate        DateTime?          @map("due_date")
+  datePresented  DateTime?          @map("date_presented")
+  codeFreezeDate DateTime?          @map("code_freeze_date")
+  downtimeHours  Float?             @map("downtime_hours")
+  needsCutover   Boolean            @default(true) @map("needs_cutover")
+  status         String             @default("NEW")
+  // Latest CAB decision: APPROVED | REQUEST_INFO | DEFERRED | REJECTED
+  decision       String?
+  decidedAt      DateTime?          @map("decided_at")
+  decidedById    String?            @map("decided_by_id")
+  decidedBy      User?              @relation("CrDecider", fields: [decidedById], references: [id])
+  assigneeId     String             @map("assignee_id")
+  assignee       User               @relation("CrAssignee", fields: [assigneeId], references: [id])
+  reporterId     String             @map("reporter_id")
+  reporter       User               @relation("CrReporter", fields: [reporterId], references: [id])
+  approvedById   String?            @map("approved_by_id")
+  approvedBy     User?              @relation("CrApprover", fields: [approvedById], references: [id])
+  approvedAt     DateTime?          @map("approved_at")
+  projectId      String?            @map("project_id")
+  project        Project?           @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  createdAt      DateTime           @default(now()) @map("created_at")
+  updatedAt      DateTime           @updatedAt @map("updated_at")
+  events         ChangeEvent[]
+  attachments    ChangeAttachment[]
+  documents      ChangeDocument[]
+  linksFrom      ChangeLink[]       @relation("LinkFrom")
+  linksTo        ChangeLink[]       @relation("LinkTo")
 
   @@index([status])
   @@index([product, plannedGoLive])
   @@map("change_requests")
+}
+
+// ── Managed lists (Admin → Lists) ───────────────────────────────────────────
+// One row per value with a stable id: add, rename, reorder, colour, deactivate.
+// Values in use are never hard-deleted; deactivated ones stay on old CRs.
+// list: change_type | release_type | product | priority | team | supporting_document | risk | decision
+// `key` is set only for the fixed lists (risk, decision): their keys drive rules.
+model ListValue {
+  id            String           @id @default(uuid())
+  list          String
+  key           String?
+  label         String
+  color         String?
+  sortOrder     Int              @default(0) @map("sort_order")
+  active        Boolean          @default(true)
+  // supporting_document only: must be attached before a CR can be Approved
+  required      Boolean          @default(false)
+  createdAt     DateTime         @default(now()) @map("created_at")
+  updatedAt     DateTime         @updatedAt @map("updated_at")
+  asChangeType  ChangeRequest[]  @relation("CrChangeType")
+  asReleaseType ChangeRequest[]  @relation("CrReleaseType")
+  asPriority    ChangeRequest[]  @relation("CrPriority")
+  asTeam        ChangeRequest[]  @relation("CrTeam")
+  asProduct     ChangeProduct[]
+  asDocument    ChangeDocument[]
+
+  @@unique([list, key])
+  @@index([list, sortOrder])
+  @@map("list_values")
+}
+
+model ChangeProduct {
+  changeRequestId String        @map("change_request_id")
+  changeRequest   ChangeRequest @relation(fields: [changeRequestId], references: [id], onDelete: Cascade)
+  productId       String        @map("product_id")
+  product         ListValue     @relation(fields: [productId], references: [id])
+
+  @@id([changeRequestId, productId])
+  @@index([productId])
+  @@map("change_products")
+}
+
+// Supporting-documents checklist: each document type links to an attachment or a URL.
+model ChangeDocument {
+  id              String            @id @default(uuid())
+  changeRequestId String            @map("change_request_id")
+  changeRequest   ChangeRequest     @relation(fields: [changeRequestId], references: [id], onDelete: Cascade)
+  documentTypeId  String            @map("document_type_id")
+  documentType    ListValue         @relation(fields: [documentTypeId], references: [id])
+  attachmentId    String?           @map("attachment_id")
+  attachment      ChangeAttachment? @relation(fields: [attachmentId], references: [id], onDelete: SetNull)
+  url             String?
+  addedById       String            @map("added_by_id")
+  createdAt       DateTime          @default(now()) @map("created_at")
+
+  @@unique([changeRequestId, documentTypeId])
+  @@map("change_documents")
+}
+
+// Linked change requests (stored once; shown on both).
+model ChangeLink {
+  fromId    String        @map("from_id")
+  from      ChangeRequest @relation("LinkFrom", fields: [fromId], references: [id], onDelete: Cascade)
+  toId      String        @map("to_id")
+  to        ChangeRequest @relation("LinkTo", fields: [toId], references: [id], onDelete: Cascade)
+  createdAt DateTime      @default(now()) @map("created_at")
+
+  @@id([fromId, toId])
+  @@index([toId])
+  @@map("change_links")
+}
+
+// Which permissions each role has. The backend checks permissions, never role
+// names. Seeded by migration; a Roles page (follow-up PR) will edit these rows.
+model RolePermission {
+  role       String
+  permission String
+
+  @@id([role, permission])
+  @@map("role_permissions")
 }
 
 model ChangeEvent {
@@ -180,6 +284,8 @@ model ChangeAttachment {
   storageKey      String        @map("storage_key")
   uploadedById    String        @map("uploaded_by_id")
   createdAt       DateTime      @default(now()) @map("created_at")
+
+  documents ChangeDocument[]
 
   @@index([changeRequestId])
   @@map("change_attachments")

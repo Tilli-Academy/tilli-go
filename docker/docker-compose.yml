@@ -70,7 +70,6 @@ services:
       MICROSOFT_REDIRECT_URI: ${MICROSOFT_REDIRECT_URI:-}
       TOKEN_ENCRYPTION_KEY: ${TOKEN_ENCRYPTION_KEY:-}
       UPLOAD_DIR: /app/uploads
-      CR_APPROVER_ROLES: ${CR_APPROVER_ROLES:-admin}
       # Email settings live on the worker only (it sends); the API shows what the worker publishes.
       DEMO_TOOLS: ${DEMO_TOOLS:-false}
     volumes:

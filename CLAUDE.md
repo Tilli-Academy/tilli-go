@@ -60,11 +60,14 @@ docker/    docker-compose.yml, *.Dockerfile, api-entrypoint.sh, nginx/nginx.conf
 | POST | /api/acknowledge | Token | Acknowledge (owner clicked "Acknowledge & start") |
 | GET | /api/acknowledge | Token | Read-only (same as /preview); never acknowledges |
 | GET/PATCH | /api/alerts/projects/:id | JWT | Start-time alerts switch, status, history (see CHANGE_REQUESTS.md) |
+| GET | /api/auth/permissions | JWT | The signed-in user's permissions |
+| GET/POST/PATCH/PUT/DELETE | /api/lists | JWT | Managed dropdown lists (writes need admin.lists) |
+| * | /api/change-requests | JWT | Change requests (see CHANGE_REQUESTS.md) |
 | GET | /health | Public | Docker health check |
 | GET/POST | /api/scheduler/status, /api/scheduler/trigger | Public | Scheduler |
 
 ## Critical Rules (non-negotiable)
-1. **Backend is source of truth** — UI blocks are cosmetic, backend enforces all rules
+1. **Backend is source of truth** — UI blocks are cosmetic, backend enforces all rules. Access is permission-based (`requirePermission('task.delete')`), never role names; see CHANGE_REQUESTS.md
 2. **No direct email from API** — only worker sends via BullMQ email-queue
 3. **4-layer dependency validation** — API middleware + service, Scheduler, Worker, Acknowledge all check independently. Cycle detection via DFS. Cross-project deps rejected.
 4. **No duplicate jobs** — deterministic jobId (`task-trigger-{taskId}`), idempotent processors
@@ -137,3 +140,4 @@ DATABASE_URL="postgresql://deployflow:change-me-in-production@localhost:5438/dep
 | `20261116000000_add_change_requests` | ChangeRequest, ChangeEvent, ChangeAttachment |
 | `20261117000000_add_start_time_alerts` | projects.start_alerts_enabled, TaskAlert |
 | `20261118000000_add_project_time_zone` | projects.time_zone (default America/Chicago) |
+| `20261119000000_add_cr_fields_lists_permissions` | CR fields, list_values, change_products/documents/links, role_permissions |

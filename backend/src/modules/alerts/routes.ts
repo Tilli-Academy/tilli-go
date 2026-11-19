@@ -50,8 +50,8 @@ router.get('/projects/:projectId', async (req, res, next) => {
 
     res.json({
       project,
-      canManage: hasPermission(req.user!, 'cr.decide'),
-      demoTools: alertSettings.demoTools && hasPermission(req.user!, 'cr.decide'),
+      canManage: await hasPermission(req.user!, 'cutover.manage'),
+      demoTools: alertSettings.demoTools && (await hasPermission(req.user!, 'cutover.manage')),
       // What the worker really uses (null if the worker isn't running yet).
       settings: mail && {
         fromAddress: mail.fromAddress,
@@ -79,7 +79,7 @@ router.get('/projects/:projectId', async (req, res, next) => {
 
 router.patch('/projects/:projectId', async (req, res, next) => {
   try {
-    if (!hasPermission(req.user!, 'cr.decide')) {
+    if (!(await hasPermission(req.user!, 'cutover.manage'))) {
       throw new AppError('Only release managers can switch start-time alerts on or off', 403);
     }
     if (typeof req.body?.enabled !== 'boolean') throw new AppError('enabled must be true or false', 400);
@@ -99,7 +99,7 @@ router.patch('/projects/:projectId', async (req, res, next) => {
 router.post('/demo/live-plan', async (req, res, next) => {
   try {
     if (!alertSettings.demoTools) throw new AppError('Not found', 404);
-    if (!hasPermission(req.user!, 'cr.decide')) throw new AppError('Only release managers can do this', 403);
+    if (!(await hasPermission(req.user!, 'cutover.manage'))) throw new AppError('Only release managers can do this', 403);
     const project = await resetLivePlan();
     res.status(201).json(project);
   } catch (err) {

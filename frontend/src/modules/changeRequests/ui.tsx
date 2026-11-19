@@ -1,4 +1,4 @@
-import type { CrStatus } from './types';
+import type { CrStatus, ListValue } from './types';
 
 export const STATUS_FLOW: CrStatus[] = ['NEW', 'ASSESS', 'SCHEDULED', 'IMPLEMENT', 'REVIEW', 'CLOSED'];
 
@@ -8,7 +8,7 @@ export const STATUS_META: Record<CrStatus, { label: string; hint: string; cls: s
   SCHEDULED: { label: 'Scheduled', hint: 'Approved - go-live date locked', cls: 'bg-sky-50 text-sky-800 ring-sky-300' },
   IMPLEMENT: { label: 'Implement', hint: 'Cutover / deployment in progress', cls: 'bg-indigo-50 text-indigo-800 ring-indigo-300' },
   REVIEW: { label: 'Review', hint: 'Post-go-live checks', cls: 'bg-violet-50 text-violet-800 ring-violet-300' },
-  CLOSED: { label: 'Closed', hint: 'Live and verified', cls: 'bg-emerald-50 text-emerald-800 ring-emerald-300' },
+  CLOSED: { label: 'Closed', hint: 'Live and verified, or rejected', cls: 'bg-emerald-50 text-emerald-800 ring-emerald-300' },
   CANCELLED: { label: 'Cancelled', hint: 'Withdrawn', cls: 'bg-rose-50 text-rose-700 ring-rose-300' },
 };
 
@@ -17,14 +17,20 @@ export function StatusPill({ status }: { status: CrStatus }) {
   return <span className={`inline-flex items-center whitespace-nowrap rounded-full px-2.5 py-0.5 text-xs font-semibold ring-1 ring-inset ${m.cls}`}>{m.label}</span>;
 }
 
-const PRIORITY: Record<string, string> = {
-  Critical: 'bg-rose-600 text-white',
-  High: 'bg-orange-100 text-orange-800',
-  Medium: 'bg-yellow-100 text-yellow-800',
-  Low: 'bg-slate-100 text-slate-600',
-};
-export function PriorityTag({ priority }: { priority: string }) {
-  return <span className={`whitespace-nowrap rounded-md px-2 py-0.5 text-xs font-semibold ${PRIORITY[priority] ?? ''}`}>{priority}</span>;
+/** A list value as a small tag in its admin-set colour (tinted background, coloured text). */
+export function ValueTag({ value, solid }: { value: ListValue | null | undefined; solid?: boolean }) {
+  if (!value) return null;
+  const c = value.color;
+  const style = c ? (solid ? { background: c, color: '#fff' } : { background: `${c}1a`, color: c }) : undefined;
+  return (
+    <span style={style} title={value.active ? undefined : 'No longer offered'}
+      className={`whitespace-nowrap rounded-md px-2 py-0.5 text-xs font-semibold ${c ? '' : 'bg-surface-hover text-text-secondary'} ${value.active ? '' : 'opacity-70 line-through decoration-1'}`}>
+      {value.label}
+    </span>
+  );
+}
+export function PriorityTag({ priority }: { priority: ListValue | null }) {
+  return <ValueTag value={priority} />;
 }
 
 const COLORS = ['bg-blue-600', 'bg-emerald-600', 'bg-violet-600', 'bg-amber-600', 'bg-rose-600', 'bg-cyan-700'];
@@ -38,9 +44,11 @@ export function Avatar({ name, small }: { name: string; small?: boolean }) {
   );
 }
 
-export function Level({ label, value }: { label: string; value: string }) {
-  const c = value === 'High' ? 'text-rose-600' : value === 'Medium' ? 'text-amber-600' : 'text-emerald-600';
-  return <span className="text-xs text-text-secondary">{label} <b className={c}>{value}</b></span>;
+/** Risk / impact: fixed key, label and colour from the risk list. */
+export function Level({ label, value, risk }: { label: string; value: string | null; risk: ListValue[] }) {
+  if (!value) return null;
+  const v = risk.find((r) => r.key === value);
+  return <span className="text-xs text-text-secondary">{label} <b style={{ color: v?.color ?? undefined }}>{v?.label ?? value}</b></span>;
 }
 
 export const crNo = (n: number) => `CR-${n}`;

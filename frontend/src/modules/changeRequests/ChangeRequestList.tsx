@@ -2,7 +2,9 @@ import { useCallback, useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { getErrorMessage } from '../../services/api';
 import { crApi } from './api';
-import type { ChangeListItem, CrMeta, CrStatus } from './types';
+import type { ChangeListItem, CrStatus } from './types';
+import { useLists } from '../../hooks/useLists';
+import { usePermissions } from '../../hooks/usePermissions';
 import { Avatar, PriorityTag, STATUS_FLOW, STATUS_META, StatusPill, btnPrimary, card, crNo, fmtDate, inputCls, relDays, Level } from './ui';
 
 const RECENT_DAYS = 30;
@@ -14,7 +16,8 @@ export default function ChangeRequestList() {
   const view = sp.get('view') === 'table' ? 'table' : 'board';
   const [items, setItems] = useState<ChangeListItem[]>([]);
   const [counts, setCounts] = useState<Record<string, number>>({});
-  const [meta, setMeta] = useState<CrMeta | null>(null);
+  const { lists } = useLists();
+  const risk = lists?.risk ?? [];
   const [q, setQ] = useState(sp.get('q') ?? '');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -31,7 +34,7 @@ export default function ChangeRequestList() {
   }, [sp]);
 
   useEffect(load, [load]);
-  useEffect(() => { crApi.meta().then((r) => setMeta(r.data)).catch(() => {}); }, []);
+  const { can } = usePermissions();
 
   const setParam = (k: string, v: string | null) => {
     const next = new URLSearchParams(sp);
@@ -63,7 +66,7 @@ export default function ChangeRequestList() {
       <div className="p-4 sm:p-6 space-y-6 max-w-[1400px] mx-auto">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h2 className="text-xl font-semibold text-text-primary">Change Requests</h2>
-          <Link to="/change-requests/new" className={btnPrimary}>+ New Change Request</Link>
+          {can('cr.create') && <Link to="/change-requests/new" className={btnPrimary}>+ New Change Request</Link>}
         </div>
 
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
@@ -81,7 +84,7 @@ export default function ChangeRequestList() {
           </form>
           <select value={sp.get('product') ?? ''} onChange={(e) => setParam('product', e.target.value || null)} className={selectCls} aria-label="Product">
             <option value="">All products</option>
-            {meta?.options.products.map((p) => <option key={p}>{p}</option>)}
+            {lists?.product.map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}
           </select>
           <select value={sp.get('status') ?? ''} onChange={(e) => setParam('status', e.target.value || null)} className={selectCls} aria-label="Status">
             <option value="">All statuses</option>
@@ -149,10 +152,10 @@ export default function ChangeRequestList() {
                   <tr key={c.id} className={`border-t border-border hover:bg-surface-hover ${c.hasConflict ? 'bg-rose-50/60' : ''}`}>
                     <td className="px-4 py-3 font-mono text-xs text-text-secondary">{crNo(c.number)}</td>
                     <td className="px-4 py-3"><Link to={`/change-requests/${c.id}`} className="font-medium text-text-primary hover:text-primary">{c.title}</Link>{c.hasConflict && <span className="ml-2 text-xs font-semibold text-rose-600">⚠ conflict</span>}</td>
-                    <td className="px-4 py-3">{c.product}</td>
+                    <td className="px-4 py-3">{c.products.map((p) => p.label).join(', ')}</td>
                     <td className="px-4 py-3"><StatusPill status={c.status} /></td>
                     <td className="px-4 py-3"><PriorityTag priority={c.priority} /></td>
-                    <td className="px-4 py-3 whitespace-nowrap"><Level label="I" value={c.impact} /> · <Level label="R" value={c.risk} /></td>
+                    <td className="px-4 py-3 whitespace-nowrap"><Level label="I" value={c.impact} risk={risk} /> · <Level label="R" value={c.risk} risk={risk} /></td>
                     <td className="px-4 py-3 whitespace-nowrap">{fmtDate(c.plannedGoLive)}<span className="block text-xs text-text-muted">{relDays(c.plannedGoLive)}</span></td>
                     <td className="px-4 py-3 whitespace-nowrap text-xs">{c.project ? <><span className="font-mono">{c.project.code}</span>{c.cutover && c.cutover.total > 0 && <span className="block text-text-muted">{c.cutover.completed}/{c.cutover.total} done</span>}</> : '-'}</td>
                     <td className="px-4 py-3"><span className="flex items-center gap-2 whitespace-nowrap"><Avatar name={c.assignee.name} small />{c.assignee.name}</span></td>
@@ -178,8 +181,9 @@ function Card({ c }: { c: ChangeListItem }) {
       </div>
       <p className="mb-2 text-sm font-semibold text-text-primary line-clamp-2">{c.title}</p>
       <div className="mb-2 flex flex-wrap gap-1.5">
-        <span className="rounded bg-primary-light px-1.5 py-0.5 text-[11px] font-medium text-primary">{c.product}</span>
-        <span className="rounded bg-surface-hover px-1.5 py-0.5 text-[11px] text-text-secondary">{c.releaseType}</span>
+        {c.products.map((p) => <span key={p.id} className="rounded bg-primary-light px-1.5 py-0.5 text-[11px] font-medium text-primary">{p.label}</span>)}
+        {c.releaseType && <span className="rounded bg-surface-hover px-1.5 py-0.5 text-[11px] text-text-secondary">{c.releaseType.label}</span>}
+        {c.status === 'CLOSED' && c.decision === 'REJECTED' && <span className="rounded bg-rose-50 px-1.5 py-0.5 text-[11px] font-semibold text-rose-700">Rejected</span>}
       </div>
       {c.cutover && c.cutover.total > 0 && (
         <div className="mb-2 h-1.5 overflow-hidden rounded-full bg-slate-100" title={`Cutover ${c.cutover.completed}/${c.cutover.total}`}>
@@ -190,7 +194,7 @@ function Card({ c }: { c: ChangeListItem }) {
         <span>Go-live {fmtDate(c.plannedGoLive)}</span>
         <Avatar name={c.assignee.name} small />
       </div>
-      {c.hasConflict && <p className="mt-2 text-xs font-semibold text-rose-600">⚠ Same-day {c.product} go-live</p>}
+      {c.hasConflict && <p className="mt-2 text-xs font-semibold text-rose-600">⚠ Same-day go-live, same product</p>}
     </Link>
   );
 }

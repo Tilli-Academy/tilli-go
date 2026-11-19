@@ -32,13 +32,14 @@ export const meta = handle(async (req, res) => {
 });
 
 export const conflicts = handle(async (req, res) => {
-  const product = str(req.query.product);
+  // ?products=id1,id2&date=YYYY-MM-DD
+  const products = (str(req.query.products) ?? '').split(',').filter((x) => /^[0-9a-f-]{36}$/i.test(x));
   const date = new Date(`${str(req.query.date) ?? ''}T00:00:00.000Z`);
-  if (!product || isNaN(date.getTime())) {
+  if (products.length === 0 || isNaN(date.getTime())) {
     res.json({ conflicts: [] });
     return;
   }
-  res.json({ conflicts: await service.findConflicts(product, date, str(req.query.exclude)) });
+  res.json({ conflicts: await service.findConflicts(products, date, str(req.query.exclude)) });
 });
 
 export const getById = handle(async (req, res) => {
@@ -47,6 +48,34 @@ export const getById = handle(async (req, res) => {
 
 export const create = handle(async (req, res) => {
   res.status(201).json(await service.create(req.body, req.user!));
+});
+
+export const update = handle(async (req, res) => {
+  res.json(await service.update(req.params.id as string, req.body, req.user!));
+});
+
+export const decide = handle(async (req, res) => {
+  res.json(await service.decide(req.params.id as string, req.body.decision, req.body.reason, req.body.datePresented, req.user!));
+});
+
+export const setDocument = handle(async (req, res) => {
+  await service.setDocument(req.params.id as string, req.params.typeId as string, req.body, req.user!);
+  res.status(204).end();
+});
+
+export const removeDocument = handle(async (req, res) => {
+  await service.removeDocument(req.params.id as string, req.params.typeId as string, req.user!);
+  res.status(204).end();
+});
+
+export const addLink = handle(async (req, res) => {
+  await service.addLink(req.params.id as string, req.body.number, req.user!);
+  res.status(204).end();
+});
+
+export const removeLink = handle(async (req, res) => {
+  await service.removeLink(req.params.id as string, req.params.otherId as string, req.user!);
+  res.status(204).end();
 });
 
 export const transition = handle(async (req, res) => {

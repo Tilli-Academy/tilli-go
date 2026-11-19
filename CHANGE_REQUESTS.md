@@ -10,37 +10,77 @@ projects holding their CR; no data was moved.
 ## Life cycle
 `New → Assess & Authorize → Scheduled → Implement → Review → Closed` (+ `Cancelled`)
 
+Leaving **Assess** is a CAB decision (approver only, `cr.decide`):
+
+| Decision | Effect |
+|---|---|
+| Approved | → Scheduled; sets Date Approved and Approved By. Blocked until every *required* supporting document is attached |
+| Request more info | → back to New, reason required, clears any approval |
+| Deferred | stays in Assess, moved to a later Date Presented |
+| Rejected | → Closed (Rejected), reason required |
+
 | Rule | Where |
 |---|---|
-| Only approver roles (`CR_APPROVER_ROLES`, default `admin`) can approve Assess → Scheduled | `workflow.ts` |
-| Back moves (bug found, rollback) need a reason; going back to Assess/New clears the approval | `service.ts` |
+| Each move needs a permission (submit/implement/review: `cr.edit`; close/cancel/withdraw: `cr.close`) | `workflow.ts` |
+| Back moves (bug found, rollback) need a reason; going back to Assess clears the approval | `service.ts` |
+| Deployment date is locked once approved (send the CR back to change it) | `service.ts` |
 | Implement needs a plan (if the CR needs a cutover): a project with at least one task | `service.ts` |
 | Review needs every task in the project's plan Completed | `service.ts` |
-| Same product + same go-live day + both open = date conflict warning | `service.ts` |
+| Open CRs sharing a product on the same go-live day = date conflict warning | `service.ts` |
 
-## What changed in existing code
-Only wiring - existing tables and behaviour are untouched:
-- `backend/prisma/schema.prisma` - 3 new models + back-relations on `User`/`Project` (no new columns on existing tables)
-- `backend/prisma/migrations/20261116000000_add_change_requests` - creates the 3 new tables only
-- `backend/src/routes/index.ts` - mounts `/api/change-requests`
-- `frontend/src/App.tsx`, `layout/Sidebar.tsx`, `layout/Header.tsx` - routes, menu item, page titles
-- `docker/` - `uploads` volume and `CR_APPROVER_ROLES` for the API
+## Fields
+Title, description, **products** (several), change type, release type, team, priority, risk and impact
+(Low / Medium / High), customer, labels, **deployment date**, **code freeze date**, **date presented** (CAB),
+**downtime (hours)**, due date, assignee, reporter, project. Set automatically: decision, Date Approved,
+Approved By. Plus a **supporting-documents checklist** (each item links to an attachment of the CR or a URL)
+and **linked change requests** (shown on both).
 
-New code lives in `backend/src/modules/changeRequests/` and `frontend/src/modules/changeRequests/`.
+## Managed lists (Admin → Lists, `admin.lists`)
+Change type, release type, products, priority, team and supporting documents are rows in `list_values` with
+stable ids: add, rename, recolour, reorder, deactivate. A value in use is never deleted: deactivate it and it
+stays on old CRs but leaves the pickers. Risk and decision have fixed keys (rules depend on them), so only their
+labels and colours change. A supporting document can be marked **required** (needed before approval).
+The migration created the standard values and turned the values already used by CRs into rows; replaced ones
+(e.g. "Normal", "Hotfix") are inactive. Products and teams start empty on a new install.
+
+## Permissions
+The API checks permissions, never role names. `role_permissions` maps roles to permissions (seeded by the
+migration; a Roles page will edit it in a follow-up PR). Replaces `CR_APPROVER_ROLES`.
+
+| Permission | Allows | admin | user |
+|---|---|---|---|
+| `cr.create` | raise a change request | ✓ | ✓ |
+| `cr.edit` | edit, attach, link, documents, pick a project, move along the workflow | ✓ | ✓ |
+| `cr.decide` | CAB decision | ✓ | |
+| `cr.close` | close, cancel, withdraw | ✓ | |
+| `cutover.manage` | start-time alerts switch, live rehearsal, run the scheduler now | ✓ | |
+| `task.edit` | create and edit tasks | ✓ | ✓ |
+| `task.delete` | delete tasks | ✓ | |
+| `project.manage` | create, edit, delete projects | ✓ | |
+| `admin.lists` | Admin → Lists | ✓ | |
+
+`GET /api/auth/permissions` returns the signed-in user's permissions (the UI hides what they can't do).
 
 ## API (`/api/change-requests`, JWT required)
 | Method | Path | Purpose |
 |---|---|---|
-| GET | `/` | list (`status`, `product`, `q`, `mine=1`, `conflicts=1`) + counts per status |
-| GET | `/meta` | users, dropdown options, approver roles |
-| GET | `/conflicts?product=&date=YYYY-MM-DD` | open CRs for that product/day |
-| POST | `/` | create |
-| GET | `/:id` | detail with history, attachments, conflicts, allowed transitions |
+| GET | `/` | list (`status`, `product` = product id, `project`, `q`, `mine=1`, `conflicts=1`) + counts per status |
+| GET | `/meta` | users, the caller's permissions, approver roles |
+| GET | `/conflicts?products=id1,id2&date=YYYY-MM-DD` | open CRs sharing a product that day |
+| POST | `/` | create (`cr.create`) |
+| GET | `/:id` | detail with history, attachments, documents, links, conflicts, allowed moves |
+| PATCH | `/:id` | edit fields (`cr.edit`) |
 | POST | `/:id/transition` | `{ to, reason? }` |
+| POST | `/:id/decision` | `{ decision, reason?, datePresented? }` (`cr.decide`) |
 | POST | `/:id/comments` | `{ message }` |
 | PUT | `/:id/project` | `{ projectId }` (null = none) or `{ create: { name, code, timeZone } }`; locked from Implement on |
+| PUT / DELETE | `/:id/documents/:typeId` | `{ attachmentId }` or `{ url }` |
+| POST / DELETE | `/:id/links`, `/:id/links/:otherId` | `{ number }` |
 | POST | `/:id/attachments` | raw body, headers `X-File-Name`, `X-File-Type` (10 MB max) |
 | GET | `/:id/attachments/:attachmentId` | download (only images/PDF open inline) |
+
+Lists: `GET /api/lists` (active; `?all=1` everything + usage for admins), `POST /api/lists/:list`,
+`PATCH /api/lists/values/:id`, `PUT /api/lists/:list/order`, `DELETE /api/lists/values/:id` (unused only).
 
 ## Demo data
 ```bash
@@ -84,7 +124,7 @@ When a task's **planned start arrives** and **everything before it is Completed*
 | Send fails | BullMQ retries (5 attempts); after the last one Release Management is told | `RETRYING` → `FAILED` |
 | Due, but an earlier step isn't done | Task goes `Blocked`; alert goes out as soon as it is released | — |
 
-- **Per-project switch** (`projects.start_alerts_enabled`). New projects start **Off**, so planning and dry runs never email anyone. The migration sets existing projects to On, so today's behaviour does not change. Completion emails follow the same switch. Only `CR_APPROVER_ROLES` (release managers) can change it.
+- **Per-project switch** (`projects.start_alerts_enabled`). New projects start **Off**, so planning and dry runs never email anyone. The migration sets existing projects to On, so today's behaviour does not change. Completion emails follow the same switch. Changing it needs `cutover.manage`.
 - **One alert per task** (`task_alerts`, unique per task), every step written to the task's audit log.
 - **One click to confirm**: the email link opens `/#/acknowledge`, which only *reads* (`GET /api/acknowledge/preview`). Nothing changes until the owner clicks (`POST /api/acknowledge`), so email link scanners can't acknowledge by accident. The link is signed for that task and owner and expires 12 h after the planned end. A plain `GET /api/acknowledge` is read-only too. After the task is reassigned, the previous owner's link is refused (403).
 - **Where to see it**: Timeline page → *Start-time alerts* panel (switch, counts, per-task alert status, alert history, refreshes every 10 s); task panel on the Timeline; *Start-time alert* column in the Tasks grid.

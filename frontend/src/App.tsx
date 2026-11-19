@@ -4,6 +4,7 @@ import MainLayout from './components/layout/MainLayout';
 import Login from './components/auth/Login';
 import SignUp from './components/auth/SignUp';
 import AuthCallback from './components/auth/AuthCallback';
+import AdminPage from './modules/admin/AdminPage';
 import ProtectedRoute from './components/auth/ProtectedRoute';
 import LandingPage from './components/landing/LandingPage';
 import Dashboard from './components/dashboard/Dashboard';
@@ -129,6 +130,7 @@ function App() {
                 <Route path="/timeline" element={<Timeline />} />
                 <Route path="/projects" element={<Projects />} />
                 <Route path="/profile" element={<Profile />} />
+                <Route path="/admin" element={<AdminPage />} />
               </Route>
             </Route>
           </Routes>
