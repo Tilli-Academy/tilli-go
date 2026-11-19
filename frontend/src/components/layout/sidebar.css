@@ -17,12 +17,13 @@
   --dfs-item-h: 38px;
   --dfs-gap: 4px;
   --dfs-bar-h: 18px;
-  --dfs-ring: 0 0 0 2px var(--dfs-surface), 0 0 0 4px #60a5fa;
+  --dfs-ring: 0 0 0 2px var(--dfs-surface), 0 0 0 4px #00b0ff;
   /* the existing sidebar motion: 300ms Tailwind ease-in-out */
   --dfs-layout-dur: 300ms;
   --dfs-layout-ease: cubic-bezier(0.4, 0, 0.2, 1);
 
-  background: linear-gradient(180deg, #0f172a 0%, #0b1220 100%);
+  /* Tilli Dark Navy */
+  background: linear-gradient(180deg, #0d1b36 0%, #0a1530 100%);
   border-right: 1px solid rgba(255, 255, 255, 0.06);
   color: #e2e8f0;
   -webkit-font-smoothing: antialiased;
@@ -53,20 +54,12 @@
   flex: none;
   align-items: center;
   justify-content: center;
-  width: 28px;
+  width: 26px; /* 28px high: the mark is 43.25% of the logo's width = 26.7px */
   height: 28px;
-  border-radius: 8px;
-  background: linear-gradient(140deg, #3b82f6 0%, #1d4ed8 100%);
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.22),
-    0 1px 2px rgba(2, 6, 23, 0.5),
-    0 4px 10px -4px rgba(37, 99, 235, 0.5);
-  color: #fff;
-}
-
-.dfs-mark svg {
-  width: 18px;
-  height: 18px;
+  /* The official Tilli mark: the left part of the logo image, never redrawn. */
+  background-repeat: no-repeat;
+  background-position: left center;
+  background-size: auto 100%;
 }
 
 .dfs-wordmark {
@@ -259,14 +252,14 @@
 .dfs-item-active,
 .dfs-item-active:hover,
 .dfs-item-active:active {
-  background-color: rgba(59, 130, 246, 0.14);
-  box-shadow: inset 0 0 0 1px rgba(96, 165, 250, 0.18);
+  background-color: rgba(49, 94, 248, 0.2);
+  box-shadow: inset 0 0 0 1px rgba(0, 176, 255, 0.22);
   color: #fff;
 }
 
 .dfs-item-active .dfs-icon,
 .dfs-item-active:hover .dfs-icon {
-  color: #93c5fd;
+  color: #7dd3fc;
 }
 
 /* Logout: restrained danger tint on hover. */
@@ -292,7 +285,7 @@
 }
 
 .dfs-item-active:focus-visible {
-  box-shadow: inset 0 0 0 1px rgba(96, 165, 250, 0.18), var(--dfs-ring);
+  box-shadow: inset 0 0 0 1px rgba(0, 176, 255, 0.22), var(--dfs-ring);
   color: #fff;
 }
 
@@ -305,7 +298,7 @@
   width: 3px;
   height: var(--dfs-bar-h);
   border-radius: 0 3px 3px 0;
-  background-color: #3b82f6;
+  background-image: var(--df-gradient); /* Tilli blue → cyan */
   box-shadow: 0 0 6px rgba(59, 130, 246, 0.25);
   pointer-events: none;
   transform: translateY(

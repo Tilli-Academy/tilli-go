@@ -106,8 +106,8 @@ function Levels({ label, value, risk, onChange, optional }: { label: string; val
       <div role="radiogroup" aria-label={label} className="inline-flex flex-wrap rounded-lg border border-border-strong bg-surface p-0.5">
         {opts.map((o) => (
           <button key={o.key || 'none'} type="button" role="radio" aria-checked={value === o.key} onClick={() => onChange(o.key)}
-            style={value === o.key && o.color ? { background: o.color } : undefined}
-            className={`rounded-md px-3 py-1.5 text-sm transition ${value === o.key ? 'bg-primary font-semibold text-white' : 'text-text-secondary hover:bg-surface-hover'}`}>{o.label}</button>
+            style={value === o.key && o.color ? { background: `color-mix(in srgb, ${o.color} 75%, black)` } : undefined}
+            className={`rounded-md px-3 py-1.5 text-sm transition ${value === o.key ? `${o.color ? '' : 'bg-primary '}font-semibold text-white` : 'text-text-secondary hover:bg-surface-hover'}`}>{o.label}</button>
         ))}
       </div>
     </div>

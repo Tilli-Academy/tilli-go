@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useContext } from 'react';
+import AuthBrand from './AuthBrand';
 import { useNavigate, Link, useSearchParams } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import api, { getErrorMessage, API_BASE_URL } from '../../services/api';
@@ -53,7 +54,7 @@ export default function Login() {
 
   return (
     <motion.div
-      className="flex items-center justify-center min-h-screen bg-surface-alt"
+      className="flex items-center justify-center min-h-screen bg-surface-alt px-4"
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       transition={{ duration: 0.3 }}
@@ -63,8 +64,9 @@ export default function Login() {
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.4, delay: 0.1, ease: 'easeOut' }}
-        className="w-full max-w-sm space-y-4 bg-surface p-8 rounded-card shadow-card"
+        className="w-full max-w-sm space-y-4 bg-surface p-8 rounded-card shadow-card overflow-hidden border border-border"
       >
+        <AuthBrand />
         <h2 className="text-xl font-bold text-center text-text-primary">Tilli-go Login</h2>
 
         {error && (

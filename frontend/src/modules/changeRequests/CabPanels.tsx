@@ -41,7 +41,9 @@ export function DecisionPanel({ cr, lists, onDone }: { cr: ChangeDetail; lists: 
         {lists.decision.map((d) => (
           <button key={d.id} type="button" disabled={busy} aria-pressed={picked === d.key}
             onClick={() => setPicked(picked === d.key ? null : (d.key as DecisionKey))}
-            style={picked === d.key && d.color ? { background: d.color, borderColor: d.color, color: '#fff' } : d.color ? { color: d.color, borderColor: `${d.color}66` } : undefined}
+            style={picked === d.key && d.color
+              ? { background: `color-mix(in srgb, ${d.color} 75%, black)`, borderColor: 'transparent', color: '#fff' }
+              : d.color ? { color: `color-mix(in srgb, ${d.color} 60%, black)`, borderColor: `${d.color}66` } : undefined}
             className={`${btnGhost}`}>
             {d.label}
           </button>

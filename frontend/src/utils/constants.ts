@@ -24,7 +24,7 @@ export const SYSTEMS = [
 // Status → Tailwind classes (used in Dashboard cards and tables)
 export const STATUS_CARD_COLORS: Record<TaskStatus, string> = {
   Pending: 'bg-amber-100 text-amber-800 border-amber-300',
-  Triggered: 'bg-teal-100 text-teal-800 border-teal-300',
+  Triggered: 'bg-blue-50 text-blue-800 border-blue-200',
   Acknowledged: 'bg-purple-100 text-purple-800 border-purple-300',
   Completed: 'bg-emerald-100 text-emerald-800 border-emerald-300',
   Blocked: 'bg-red-100 text-red-800 border-red-300',
@@ -34,7 +34,7 @@ export const STATUS_CARD_COLORS: Record<TaskStatus, string> = {
 // Status → hex colors (used in AG Grid cell renderers)
 export const STATUS_BADGE_COLORS: Record<TaskStatus, StatusColors> = {
   Pending: { bg: '#fef3c7', text: '#92400e' },
-  Triggered: { bg: '#ccfbf1', text: '#115e59' },
+  Triggered: { bg: '#eef3ff', text: '#1e4fb8' },
   Acknowledged: { bg: '#ede9fe', text: '#6d28d9' },
   Completed: { bg: '#d1fae5', text: '#065f46' },
   Blocked: { bg: '#fee2e2', text: '#991b1b' },

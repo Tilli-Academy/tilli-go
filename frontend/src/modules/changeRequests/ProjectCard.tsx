@@ -91,7 +91,7 @@ export default function ProjectCard({ cr, onChanged }: { cr: ChangeDetail; onCha
             <span className="font-medium text-text-primary" title="The project's task plan (shared by every change request in it)">Cutover</span>
             <span className="text-text-secondary">{cr.cutover.completed}/{cr.cutover.total} tasks · {pct}%</span>
           </div>
-          <div className="h-2.5 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full bg-primary transition-all" style={{ width: `${pct}%` }} /></div>
+          <div className="h-2.5 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full bg-brand-gradient transition-all" style={{ width: `${pct}%` }} /></div>
           {cr.ownTasks && (
             <p className="mt-2 text-sm text-text-secondary" title="Tasks tagged with this change in the grid. Review waits only for these.">
               This change's tasks: <b className="text-text-primary">{cr.ownTasks.completed}/{cr.ownTasks.total}</b> done

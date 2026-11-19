@@ -187,7 +187,7 @@ function Card({ c }: { c: ChangeListItem }) {
       </div>
       {c.cutover && c.cutover.total > 0 && (
         <div className="mb-2 h-1.5 overflow-hidden rounded-full bg-slate-100" title={`Cutover ${c.cutover.completed}/${c.cutover.total}`}>
-          <div className="h-full bg-primary" style={{ width: `${pct}%` }} />
+          <div className="h-full bg-brand-gradient" style={{ width: `${pct}%` }} />
         </div>
       )}
       <div className="flex items-center justify-between text-xs text-text-secondary">

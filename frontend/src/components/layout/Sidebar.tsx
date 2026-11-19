@@ -12,6 +12,7 @@ import {
 } from "../dashboard/DashboardIcons";
 import type { IconProps } from "../dashboard/DashboardIcons";
 import "./sidebar.css";
+import tilliLogo from "../../assets/tilli-logo.png";
 import { usePermissions } from "../../hooks/usePermissions";
 
 interface NavItem {
@@ -36,30 +37,6 @@ function isNavActive(pathname: string, to: string, end: boolean): boolean {
   const path = pathname.toLowerCase();
   const target = to.toLowerCase();
   return path === target || (!end && path.startsWith(target) && path.charAt(target.length) === "/");
-}
-
-// Brand mark: two task nodes joined by a step connector.
-function BrandGlyph() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false">
-      {/* a staircase rising to an arrow: a cutover moving step by step */}
-      <path
-        d="M4 19.5h4.5V15H13v-4.5h3.5"
-        stroke="currentColor"
-        strokeWidth={2.2}
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-      <path
-        d="M14.5 5.5H20v5.5M20 5.5l-6.2 6.2"
-        stroke="currentColor"
-        strokeWidth={2.2}
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        opacity="0.85"
-      />
-    </svg>
-  );
 }
 
 interface SidebarProps {
@@ -105,9 +82,8 @@ export default function Sidebar({ isCollapsed, isMobileOpen, onToggleCollapse, o
     >
       {/* Brand + Desktop Toggle */}
       <div className="dfs-brand h-14">
-        <span className="dfs-mark" aria-hidden="true">
-          <BrandGlyph />
-        </span>
+        {/* the official Tilli mark: the left part of the logo image, never redrawn */}
+        <span className="dfs-mark" aria-hidden="true" style={{ backgroundImage: `url(${tilliLogo})` }} />
         <span className="dfs-wordmark">Tilli-go</span>
         <button
           onClick={onToggleCollapse}

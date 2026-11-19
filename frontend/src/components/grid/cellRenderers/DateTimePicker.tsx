@@ -31,7 +31,7 @@ export function DateTimeRenderer(params: ICellRendererParams<Task, string | null
   // Completed tasks: show value or dash, no edit affordance
   if (isCompleted) {
     return (
-      <span style={{ color: isEmpty ? '#9ca3af' : 'inherit', fontSize: '13px' }}>
+      <span style={{ color: isEmpty ? 'hsl(var(--color-text-muted))' : 'inherit', fontSize: '13px' }}>
         {displayText || '—'}
       </span>
     );
@@ -53,7 +53,7 @@ export function DateTimeRenderer(params: ICellRendererParams<Task, string | null
       }}
     >
       {isEmpty ? (
-        <span style={{ color: '#9ca3af', fontStyle: 'italic' }}>Click to set</span>
+        <span style={{ color: 'hsl(var(--color-text-muted))', fontStyle: 'italic' }}>Click to set</span>
       ) : (
         <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
           {displayText}
@@ -146,7 +146,7 @@ const DateTimeEditor = forwardRef<DateTimeEditorHandle, ICellEditorParams<Task, 
       <div
         style={{
           background: 'white',
-          border: '1px solid #d1d5db',
+          border: '1px solid hsl(var(--color-border-strong))',
           borderRadius: '6px',
           padding: '10px',
           boxShadow: '0 4px 12px rgba(0,0,0,0.12)',
@@ -158,7 +158,7 @@ const DateTimeEditor = forwardRef<DateTimeEditorHandle, ICellEditorParams<Task, 
         }}
         onMouseDown={(e) => e.stopPropagation()}
       >
-        <label style={{ fontSize: '11px', fontWeight: 600, color: '#57534e', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+        <label style={{ fontSize: '11px', fontWeight: 600, color: 'hsl(var(--color-text-secondary))', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
           Date &amp; Time ({zoneName(timeZone)})
         </label>
         <input
@@ -173,7 +173,7 @@ const DateTimeEditor = forwardRef<DateTimeEditorHandle, ICellEditorParams<Task, 
           style={{
             width: '100%',
             padding: '6px 8px',
-            border: '1px solid #d1d5db',
+            border: '1px solid hsl(var(--color-border-strong))',
             borderRadius: '4px',
             fontSize: '13px',
             fontFamily: 'inherit',
@@ -189,10 +189,10 @@ const DateTimeEditor = forwardRef<DateTimeEditorHandle, ICellEditorParams<Task, 
               padding: '4px 10px',
               fontSize: '12px',
               fontFamily: 'inherit',
-              border: '1px solid #d1d5db',
+              border: '1px solid hsl(var(--color-border-strong))',
               borderRadius: '4px',
               background: 'white',
-              color: '#57534e',
+              color: 'hsl(var(--color-text-secondary))',
               cursor: 'pointer',
             }}
           >
@@ -207,7 +207,7 @@ const DateTimeEditor = forwardRef<DateTimeEditorHandle, ICellEditorParams<Task, 
               fontFamily: 'inherit',
               border: 'none',
               borderRadius: '4px',
-              background: '#115e59',
+              background: 'var(--gradient-button)', // Tilli brand
               color: 'white',
               cursor: 'pointer',
             }}

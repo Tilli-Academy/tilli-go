@@ -22,7 +22,12 @@ export function StatusPill({ status }: { status: CrStatus }) {
 export function ValueTag({ value, solid }: { value: ListValue | null | undefined; solid?: boolean }) {
   if (!value) return null;
   const c = value.color;
-  const style = c ? (solid ? { background: c, color: '#fff' } : { background: `${c}1a`, color: c }) : undefined;
+  // Admins pick any colour, so the text is a darker mix of it: readable (>= 4.5:1) on its tint.
+  const style = c
+    ? solid
+      ? { background: `color-mix(in srgb, ${c} 75%, black)`, color: '#fff' }
+      : { background: `${c}1a`, color: `color-mix(in srgb, ${c} 60%, black)` }
+    : undefined;
   return (
     <span style={style} title={value.active ? undefined : 'No longer offered'}
       className={`whitespace-nowrap rounded-md px-2 py-0.5 text-xs font-semibold ${c ? '' : 'bg-surface-hover text-text-secondary'} ${value.active ? '' : 'opacity-70 line-through decoration-1'}`}>
@@ -34,7 +39,7 @@ export function PriorityTag({ priority }: { priority: ListValue | null }) {
   return <ValueTag value={priority} />;
 }
 
-const COLORS = ['bg-blue-600', 'bg-emerald-600', 'bg-violet-600', 'bg-amber-600', 'bg-rose-600', 'bg-cyan-700'];
+const COLORS = ['bg-blue-700', 'bg-emerald-700', 'bg-violet-700', 'bg-amber-700', 'bg-rose-700', 'bg-cyan-800']; // white initials >= 4.5:1
 export function Avatar({ name, small }: { name: string; small?: boolean }) {
   const initials = name.split(/\s+/).map((p) => p[0]).join('').slice(0, 2).toUpperCase();
   const c = COLORS[Array.from(name).reduce((a, ch) => a + ch.charCodeAt(0), 0) % COLORS.length];
@@ -49,7 +54,7 @@ export function Avatar({ name, small }: { name: string; small?: boolean }) {
 export function Level({ label, value, risk }: { label: string; value: string | null; risk: ListValue[] }) {
   if (!value) return null;
   const v = risk.find((r) => r.key === value);
-  return <span className="text-xs text-text-secondary">{label} <b style={{ color: v?.color ?? undefined }}>{v?.label ?? value}</b></span>;
+  return <span className="text-xs text-text-secondary">{label} <b style={{ color: v?.color ? `color-mix(in srgb, ${v.color} 60%, black)` : undefined }}>{v?.label ?? value}</b></span>;
 }
 
 export const crNo = (n: number) => `CR-${n}`;

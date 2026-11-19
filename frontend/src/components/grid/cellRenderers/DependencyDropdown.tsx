@@ -45,7 +45,7 @@ export function DependencyRenderer(params: ICellRendererParams<Task, string[]>) 
     | undefined;
 
   if (deps.length === 0) {
-    return <span style={{ color: '#9ca3af', fontSize: '12px' }}>None</span>;
+    return <span style={{ color: 'hsl(var(--color-text-muted))', fontSize: '12px' }}>None</span>;
   }
 
   const taskMap = buildTaskMap(params.api);
@@ -209,7 +209,7 @@ const DependencyEditor = forwardRef<DependencyEditorHandle, ICellEditorParams<Ta
       <div
         style={{
           background: '#fff',
-          border: '1px solid #d1d5db',
+          border: '1px solid hsl(var(--color-border-strong))',
           borderRadius: '6px',
           boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
           width: '280px',
@@ -223,7 +223,7 @@ const DependencyEditor = forwardRef<DependencyEditorHandle, ICellEditorParams<Ta
         {/* ── Selected dependencies ── */}
         {selectedTasks.length > 0 && (
           <div style={{ padding: '8px 10px 4px', borderBottom: '1px solid #e5e7eb' }}>
-            <div style={{ fontSize: '11px', fontWeight: 600, color: '#57534e', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '6px' }}>
+            <div style={{ fontSize: '11px', fontWeight: 600, color: 'hsl(var(--color-text-secondary))', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '6px' }}>
               Selected ({selectedTasks.length})
             </div>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', paddingBottom: '6px' }}>
@@ -287,7 +287,7 @@ const DependencyEditor = forwardRef<DependencyEditorHandle, ICellEditorParams<Ta
         {/* ── Available tasks ── */}
         <div style={{ overflowY: 'auto', flex: 1, padding: '2px 0', maxHeight: '180px' }}>
           {available.length === 0 && (
-            <div style={{ padding: '8px 10px', color: '#9ca3af', fontSize: '13px' }}>
+            <div style={{ padding: '8px 10px', color: 'hsl(var(--color-text-muted))', fontSize: '13px' }}>
               {allTasks.length === 0 ? 'No other tasks in project' : 'No matching tasks'}
             </div>
           )}
@@ -330,7 +330,7 @@ const DependencyEditor = forwardRef<DependencyEditorHandle, ICellEditorParams<Ta
               fontFamily: 'inherit',
               border: 'none',
               borderRadius: '4px',
-              background: '#115e59',
+              background: 'var(--gradient-button)', // Tilli brand
               color: 'white',
               cursor: 'pointer',
             }}
