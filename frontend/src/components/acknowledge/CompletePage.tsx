@@ -40,7 +40,7 @@ export default function CompletePage() {
       return;
     }
     let alive = true;
-    api.get<Preview>('/complete/preview', { params: { task_id: taskId, token } })
+    api.get<Preview>('/complete/preview', { params: { task_id: taskId }, headers: { 'X-Link-Token': token } })
       .then((r) => {
         if (!alive) return;
         setTask(r.data);
@@ -56,7 +56,7 @@ export default function CompletePage() {
   const confirm = async () => {
     setView('saving');
     try {
-      const r = await api.post<CompleteResponse>('/complete', null, { params: { task_id: taskId, token } });
+      const r = await api.post<CompleteResponse>('/complete', { task_id: taskId, token });
       setResult(r.data);
       setView('done');
     } catch (e) {

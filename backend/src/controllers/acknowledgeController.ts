@@ -1,44 +1,19 @@
 import type { Request, Response, NextFunction } from 'express';
 import prisma from '../config/prisma';
 import logger from '../config/logger';
-import { verifyAckToken } from '../utils/token';
 import { canTaskExecute } from '../services/dependencyService';
+import { checkLinkToken, ownerMismatch, readLinkParams, type LinkOutcome } from '../utils/emailLink';
 import type { AcknowledgeSuccessResponse, AckTokenData } from '../types';
-
-type Outcome = { status: number; body: Record<string, unknown> };
-
-function readParams(req: Request): { taskId?: string; token?: string } {
-  const src = { ...(req.query as Record<string, unknown>), ...((req.body as Record<string, unknown>) ?? {}) };
-  return {
-    taskId: typeof src.task_id === 'string' ? src.task_id : undefined,
-    token: typeof src.token === 'string' ? src.token : undefined,
-  };
-}
-
-function checkToken(taskId: string | undefined, token: string | undefined): { data?: AckTokenData; fail?: Outcome } {
-  if (!taskId || !token) return { fail: { status: 400, body: { error: 'Missing task_id or token' } } };
-  try {
-    return { data: verifyAckToken(taskId, token) };
-  } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : String(err);
-    logger.warn({ taskId, reason: message }, 'Ack token rejected');
-    return { fail: { status: 403, body: { error: message } } };
-  }
-}
 
 /**
  * Acknowledge a Triggered task: Triggered → Acknowledged, records the real start
  * time, marks the start-time alert as acknowledged. Safe to call twice.
+ *
+ * The change is ONE conditional update ("only if still Triggered and still owned by
+ * the person the link was sent to"), so a reassignment or a second click that lands
+ * at the same moment can't slip between the check and the save.
  */
-/** A link names the owner it was sent to; after a reassignment only the new owner's link works. */
-function ownerMismatch(tokenData: AckTokenData, assignedUserId: string | null): Outcome | null {
-  if (tokenData.uid && tokenData.uid !== assignedUserId) {
-    return { status: 403, body: { error: 'This link was sent to a previous owner of the task' } };
-  }
-  return null;
-}
-
-async function acknowledgeTask(taskId: string, tokenData: AckTokenData): Promise<Outcome> {
+async function acknowledgeTask(taskId: string, tokenData: AckTokenData): Promise<LinkOutcome> {
   const task = await prisma.task.findUnique({
     where: { id: taskId },
     select: { id: true, status: true, taskName: true, actualStartTime: true, assignedUserId: true },
@@ -47,17 +22,7 @@ async function acknowledgeTask(taskId: string, tokenData: AckTokenData): Promise
   const notOwner = ownerMismatch(tokenData, task.assignedUserId);
   if (notOwner) return notOwner;
 
-  if (task.status === 'Acknowledged' || task.status === 'Completed') {
-    const body: AcknowledgeSuccessResponse = {
-      message: `Task already ${task.status.toLowerCase()}`,
-      taskId: task.id,
-      taskName: task.taskName,
-      status: task.status,
-      actualStartTime: task.actualStartTime,
-    };
-    return { status: 200, body: { ...body } };
-  }
-
+  if (task.status === 'Acknowledged' || task.status === 'Completed') return already(task);
   if (task.status !== 'Triggered') {
     return { status: 409, body: { error: `Cannot acknowledge — task is ${task.status}`, currentStatus: task.status } };
   }
@@ -75,10 +40,11 @@ async function acknowledgeTask(taskId: string, tokenData: AckTokenData): Promise
   const now = new Date();
   const userId = tokenData.uid ?? null;
   const updated = await prisma.$transaction(async (tx) => {
-    const result = await tx.task.update({
-      where: { id: taskId },
+    const claim = await tx.task.updateMany({
+      where: { id: taskId, status: 'Triggered', assignedUserId: tokenData.uid },
       data: { status: 'Acknowledged', actualStartTime: now },
     });
+    if (claim.count === 0) return null; // someone else changed it first
     await tx.auditLog.createMany({
       data: [
         { taskId, action: 'UPDATED', field: 'status', oldValue: 'Triggered', newValue: 'Acknowledged', userId },
@@ -86,8 +52,21 @@ async function acknowledgeTask(taskId: string, tokenData: AckTokenData): Promise
       ],
     });
     await tx.taskAlert.updateMany({ where: { taskId }, data: { status: 'ACKNOWLEDGED', acknowledgedAt: now } });
-    return result;
+    return tx.task.findUniqueOrThrow({ where: { id: taskId } });
   });
+
+  if (!updated) {
+    // Lost the race: answer for the task as it is now.
+    const current = await prisma.task.findUnique({
+      where: { id: taskId },
+      select: { id: true, status: true, taskName: true, actualStartTime: true, assignedUserId: true },
+    });
+    if (!current) return { status: 404, body: { error: 'Task not found' } };
+    const changedOwner = ownerMismatch(tokenData, current.assignedUserId);
+    if (changedOwner) return changedOwner;
+    if (current.status === 'Acknowledged' || current.status === 'Completed') return already(current);
+    return { status: 409, body: { error: `Cannot acknowledge — task is ${current.status}`, currentStatus: current.status } };
+  }
 
   logger.info({ taskId, taskName: task.taskName }, 'Task acknowledged');
   const body: AcknowledgeSuccessResponse = {
@@ -100,11 +79,22 @@ async function acknowledgeTask(taskId: string, tokenData: AckTokenData): Promise
   return { status: 200, body: { ...body } };
 }
 
+function already(task: { id: string; status: string; taskName: string; actualStartTime: Date | null }): LinkOutcome {
+  const body: AcknowledgeSuccessResponse = {
+    message: `Task already ${task.status.toLowerCase()}`,
+    taskId: task.id,
+    taskName: task.taskName,
+    status: task.status,
+    actualStartTime: task.actualStartTime,
+  };
+  return { status: 200, body: { ...body } };
+}
+
 /** POST /api/acknowledge — the owner clicked "Acknowledge & start". */
 export const acknowledgePost = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
-    const { taskId, token } = readParams(req);
-    const { data, fail } = checkToken(taskId, token);
+    const { taskId, token } = readLinkParams(req);
+    const { data, fail } = checkLinkToken(taskId, token, 'Ack');
     if (fail) { res.status(fail.status).json(fail.body); return; }
     const out = await acknowledgeTask(taskId!, data!);
     res.status(out.status).json(out.body);
@@ -113,15 +103,14 @@ export const acknowledgePost = async (req: Request, res: Response, next: NextFun
   }
 };
 
-
 /**
  * GET /api/acknowledge/preview — read-only details for the confirm page.
  * Opening the link changes nothing, so email link scanners can't acknowledge.
  */
 export const preview = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
-    const { taskId, token } = readParams(req);
-    const { data: tokenData, fail } = checkToken(taskId, token);
+    const { taskId, token } = readLinkParams(req);
+    const { data: tokenData, fail } = checkLinkToken(taskId, token, 'Ack');
     if (fail) { res.status(fail.status).json(fail.body); return; }
 
     const task = await prisma.task.findUnique({

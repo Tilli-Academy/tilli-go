@@ -14,6 +14,7 @@ export const ALERT_META: Record<string, { label: string; icon: string; cls: stri
   ACKNOWLEDGED: { label: 'Acknowledged', icon: '✓', cls: 'text-violet-800 bg-violet-50 border-violet-200', hint: 'Owner confirmed they started.' },
   NO_OWNER: { label: 'On hold — no owner', icon: '!', cls: 'text-rose-800 bg-rose-50 border-rose-200', hint: 'Starts once someone is assigned. Release manager told.' },
   BLOCKED_DOMAIN: { label: 'Not sent — outside company', icon: '✕', cls: 'text-rose-800 bg-rose-50 border-rose-200', hint: 'Only company addresses get alerts. Release manager told.' },
+  SENDING: { label: 'Sending…', icon: '✉', cls: 'text-amber-800 bg-amber-50 border-amber-200', hint: 'The email is being sent now.' },
   RETRYING: { label: 'Failed — retrying', icon: '↻', cls: 'text-rose-800 bg-rose-50 border-rose-200', hint: 'Trying again automatically.' },
   FAILED: { label: 'Failed', icon: '✕', cls: 'text-rose-800 bg-rose-50 border-rose-200', hint: 'All retries used. Release manager told.' },
 };

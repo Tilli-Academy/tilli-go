@@ -43,7 +43,7 @@ export default function AcknowledgePage() {
       return;
     }
     let alive = true;
-    api.get<Preview>('/acknowledge/preview', { params: { task_id: taskId, token } })
+    api.get<Preview>('/acknowledge/preview', { params: { task_id: taskId }, headers: { 'X-Link-Token': token } })
       .then((r) => {
         if (!alive) return;
         setTask(r.data);
@@ -59,7 +59,7 @@ export default function AcknowledgePage() {
   const confirm = async () => {
     setView('saving');
     try {
-      const r = await api.post<AcknowledgeResponse>('/acknowledge', null, { params: { task_id: taskId, token } });
+      const r = await api.post<AcknowledgeResponse>('/acknowledge', { task_id: taskId, token });
       setResult(r.data);
       setView('done');
     } catch (e) {

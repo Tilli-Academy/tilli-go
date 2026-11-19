@@ -157,12 +157,14 @@ export async function tick(): Promise<void> {
     }
 
     // ── Phase 3: Completion — enqueue completion emails ─────────────────
-    // Acknowledged tasks whose plannedEndTime has passed get a completion email.
+    // Acknowledged tasks whose plannedEndTime has passed get ONE completion email
+    // (completionEmailSentAt is set by the worker when it sends).
 
     const completionCandidates = await prisma.task.findMany({
       where: {
         status: 'Acknowledged',
         plannedEndTime: { lte: now },
+        completionEmailSentAt: null,
       },
       select: {
         id: true,

@@ -11,6 +11,7 @@ import {
   STATUS_REQUIRES_DEPS_MET,
   TaskStatus,
   LOCKED_STATUSES,
+  DONE_STATUSES,
 } from '../types';
 import type {
   CreateTaskDTO,
@@ -321,7 +322,20 @@ async function remove(id: string): Promise<void> {
     throw new AppError('Task not found', 404);
   }
 
-  await prisma.task.delete({ where: { id } });
+  // Deleting a step would silently drop its links, so later steps that wait for it
+  // could start too early. Refuse while any of them is still open; the user must
+  // first remove the dependency (or finish / mark N/A those steps).
+  await prisma.$transaction(async (tx) => {
+    const waiting = await tx.taskDependency.findMany({
+      where: { dependsOnTaskId: id, task: { status: { notIn: [...DONE_STATUSES] } } },
+      select: { task: { select: { sequenceNumber: true, taskName: true, project: { select: { code: true } } } } },
+    });
+    if (waiting.length > 0) {
+      const names = waiting.map((d) => `${d.task.project.code}-${d.task.sequenceNumber} ${d.task.taskName}`).join(', ');
+      throw new AppError(`Cannot delete — these steps depend on this task: ${names}. Remove the dependency first.`, 409);
+    }
+    await tx.task.delete({ where: { id } });
+  });
 
   logger.info({ taskId: id }, 'Task deleted');
 }

@@ -48,9 +48,11 @@ test('a database error after a successful send does not cause a second email (re
     project: { code: 'Q3', name: 'Q3 release' },
     dependsOn: [],
   };
-  const upsert = mock.fn(async () => { throw new Error('database unavailable'); });
+  // The claim (before sending) works; the status save after sending fails.
+  const update = mock.fn(async () => { throw new Error('database unavailable'); });
   fake('task', { findUnique: async () => task });
-  fake('taskAlert', { findUnique: async () => null, upsert });
+  fake('taskAlert', { findUnique: async () => null, createMany: async () => ({ count: 1 }), update });
+  fake('$executeRaw', async () => 1);
   fake('auditLog', { create: async () => ({}) });
   const sendMail = mock.method(transporter, 'sendMail', async () => ({ messageId: '<m1@test>' }));
 
@@ -59,7 +61,7 @@ test('a database error after a successful send does not cause a second email (re
 
   assert.equal(result.status, 'sent');
   assert.equal(sendMail.mock.callCount(), 1, 'email sent exactly once');
-  assert.equal(upsert.mock.callCount(), 1, 'status save attempted once, failure only logged');
+  assert.equal(update.mock.callCount(), 1, 'status save attempted once, failure only logged');
   mock.restoreAll();
 });
 

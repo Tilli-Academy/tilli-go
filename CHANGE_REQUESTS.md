@@ -77,7 +77,7 @@ migration; a Roles page will edit it in a follow-up PR). Replaces `CR_APPROVER_R
 | PUT | `/:id/project` | `{ projectId }` (null = none) or `{ create: { name, code, timeZone } }`; locked from Implement on |
 | PUT / DELETE | `/:id/documents/:typeId` | `{ attachmentId }` or `{ url }` |
 | POST / DELETE | `/:id/links`, `/:id/links/:otherId` | `{ number }` |
-| POST | `/:id/attachments` | raw body, headers `X-File-Name`, `X-File-Type` (10 MB max) |
+| POST | `/:id/attachments` | raw body, header `X-File-Name` (10 MB max). Allowed: pdf, png, jpg, gif, webp, txt, csv, doc(x), xls(x), ppt(x), zip; the content must match the extension (else 415). The stored type comes from the file, not the browser |
 | GET | `/:id/attachments/:attachmentId` | download (only images/PDF open inline) |
 
 Lists: `GET /api/lists` (active; `?all=1` everything + usage for admins), `POST /api/lists/:list`,

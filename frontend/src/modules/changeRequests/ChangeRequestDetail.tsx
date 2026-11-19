@@ -194,6 +194,7 @@ export default function ChangeRequestDetail() {
                 {cr.attachments.length === 0 && <li className="text-sm text-text-muted">No attachments yet.</li>}
               </ul>
               <input ref={fileRef} type="file" className="hidden" aria-label="Choose file"
+                accept=".pdf,.png,.jpg,.jpeg,.gif,.webp,.txt,.csv,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.zip"
                 onChange={async (e) => { const file = e.target.files?.[0]; e.target.value = ''; if (file) await run(() => crApi.upload(cr.id, file), `Uploaded ${file.name}`); }} />
               {canEdit && <button type="button" onClick={() => fileRef.current?.click()} disabled={busy} className={btnGhost}>Upload file</button>}
             </section>

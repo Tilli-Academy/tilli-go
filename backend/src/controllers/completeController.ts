@@ -1,8 +1,8 @@
 import type { Request, Response, NextFunction } from 'express';
 import prisma from '../config/prisma';
 import logger from '../config/logger';
-import { verifyAckToken } from '../utils/token';
-import type { AckTokenData, CompleteSuccessResponse } from '../types';
+import { checkLinkToken, ownerMismatch, readLinkParams } from '../utils/emailLink';
+import type { CompleteSuccessResponse } from '../types';
 
 // "Mark complete" link from the completion email. Same pattern as acknowledge:
 //   GET  /api/complete(/preview) — read-only details for the confirm page
@@ -10,38 +10,10 @@ import type { AckTokenData, CompleteSuccessResponse } from '../types';
 // Opening a link never changes anything (email scanners open links). The link names
 // the owner it was sent to and only works while that person still owns the task.
 
-type Outcome = { status: number; body: Record<string, unknown> };
-
-function readParams(req: Request): { taskId?: string; token?: string } {
-  const src = { ...(req.query as Record<string, unknown>), ...((req.body as Record<string, unknown>) ?? {}) };
-  return {
-    taskId: typeof src.task_id === 'string' ? src.task_id : undefined,
-    token: typeof src.token === 'string' ? src.token : undefined,
-  };
-}
-
-function checkToken(taskId?: string, token?: string): { data?: AckTokenData; fail?: Outcome } {
-  if (!taskId || !token) return { fail: { status: 400, body: { error: 'Missing task_id or token' } } };
-  try {
-    return { data: verifyAckToken(taskId, token) };
-  } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : String(err);
-    logger.warn({ taskId, reason: message }, 'Complete token rejected');
-    return { fail: { status: 403, body: { error: message } } };
-  }
-}
-
-/** The link must name the task's current owner (links without one are refused). */
-function ownerMismatch(data: AckTokenData, assignedUserId: string | null): Outcome | null {
-  if (!data.uid) return { status: 403, body: { error: 'This link does not name the task owner - ask for a new one' } };
-  if (data.uid !== assignedUserId) return { status: 403, body: { error: 'This link was sent to a previous owner of the task' } };
-  return null;
-}
-
 export const preview = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
-    const { taskId, token } = readParams(req);
-    const { data, fail } = checkToken(taskId, token);
+    const { taskId, token } = readLinkParams(req);
+    const { data, fail } = checkLinkToken(taskId, token, 'Complete');
     if (fail) { res.status(fail.status).json(fail.body); return; }
     const task = await prisma.task.findUnique({
       where: { id: taskId },
@@ -64,8 +36,8 @@ export const preview = async (req: Request, res: Response, next: NextFunction): 
 
 export const complete = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
-    const { taskId, token } = readParams(req);
-    const { data, fail } = checkToken(taskId, token);
+    const { taskId, token } = readLinkParams(req);
+    const { data, fail } = checkLinkToken(taskId, token, 'Complete');
     if (fail) { res.status(fail.status).json(fail.body); return; }
 
     const task = await prisma.task.findUnique({
@@ -90,18 +62,43 @@ export const complete = async (req: Request, res: Response, next: NextFunction):
       return;
     }
 
+    // One conditional update ("only if still Acknowledged and still this owner"), so a
+    // reassignment or a second click at the same moment can't slip in between.
     const now = new Date();
     const userId = data!.uid ?? null;
     const updated = await prisma.$transaction(async (tx) => {
-      const result = await tx.task.update({ where: { id: task.id }, data: { status: 'Completed', actualEndTime: now } });
+      const claim = await tx.task.updateMany({
+        where: { id: task.id, status: 'Acknowledged', assignedUserId: data!.uid },
+        data: { status: 'Completed', actualEndTime: now },
+      });
+      if (claim.count === 0) return null;
       await tx.auditLog.createMany({
         data: [
           { taskId: task.id, action: 'UPDATED', field: 'status', oldValue: 'Acknowledged', newValue: 'Completed', userId },
           { taskId: task.id, action: 'UPDATED', field: 'actualEndTime', oldValue: null, newValue: now.toISOString(), userId },
         ],
       });
-      return result;
+      return tx.task.findUniqueOrThrow({ where: { id: task.id } });
     });
+    if (!updated) {
+      // Lost the race: answer for the task as it is now.
+      const current = await prisma.task.findUnique({
+        where: { id: task.id },
+        select: { id: true, status: true, taskName: true, actualEndTime: true, assignedUserId: true },
+      });
+      const changedOwner = current && ownerMismatch(data!, current.assignedUserId);
+      if (!current) { res.status(404).json({ error: 'Task not found' }); return; }
+      if (changedOwner) { res.status(changedOwner.status).json(changedOwner.body); return; }
+      if (current.status === 'Completed') {
+        const body: CompleteSuccessResponse = {
+          message: 'Task already completed', taskId: current.id, taskName: current.taskName, status: current.status, actualEndTime: current.actualEndTime,
+        };
+        res.status(200).json(body);
+        return;
+      }
+      res.status(409).json({ error: `Cannot complete - task is ${current.status}`, currentStatus: current.status });
+      return;
+    }
     logger.info({ taskId: task.id, taskName: task.taskName }, 'Task completed via email link');
 
     const body: CompleteSuccessResponse = {

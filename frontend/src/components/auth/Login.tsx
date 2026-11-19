@@ -134,7 +134,7 @@ export default function Login() {
 
         <p className="text-sm text-center text-text-secondary">
           Don&apos;t have an account?{' '}
-          <Link to="/signup" className="text-primary hover:underline">Sign Up</Link>
+          <Link to="/signup" className="text-primary font-medium underline underline-offset-2">Sign Up</Link>
         </p>
       </motion.form>
     </motion.div>

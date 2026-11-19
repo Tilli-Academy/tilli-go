@@ -93,9 +93,8 @@ export const setProject = handle(async (req, res) => {
 export const upload = handle(async (req, res) => {
   if (!Buffer.isBuffer(req.body)) throw new AppError('Send the file as the raw request body', 400);
   const name = decodeURIComponent(String(req.headers['x-file-name'] ?? '')).trim();
-  // The browser sends the body as application/octet-stream and the real type in X-File-Type.
-  const type = String(req.headers['x-file-type'] || 'application/octet-stream').split(';')[0]!.slice(0, 100);
-  res.status(201).json(await service.addAttachment(req.params.id as string, name, type, req.body, req.user!));
+  // The type is worked out from the file itself (service → checkUpload), not from a header.
+  res.status(201).json(await service.addAttachment(req.params.id as string, name, req.body, req.user!));
 });
 
 // Only images and PDFs open inline; anything else downloads (stops uploaded HTML from running).

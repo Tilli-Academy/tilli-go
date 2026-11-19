@@ -88,7 +88,9 @@ Scheduler runs in API process every 60s. Phase 1: unblock Blocked→Pending. Pha
 
 ## Email & Auth
 - **Email:** Nodemailer (SMTP or JSON mock). HMAC-SHA256 token, 7-day expiry. Rate limited 15/min/IP.
-- **Auth:** JWT (24h), stored in localStorage, Axios Bearer interceptor. 401 clears token → login redirect. Acknowledge endpoint uses HMAC token (not JWT).
+- **Auth:** JWT (24h), stored in localStorage, Axios Bearer interceptor. 401 clears token → login redirect. The role is read from the database on every request (not from the JWT), so a role change applies at once.
+- **Email links (acknowledge / complete):** HMAC token (not JWT) that must name the current owner (`uid`). The confirm pages send it in the `X-Link-Token` header (GET) or the POST body, never in the API URL; Nginx logs paths without query strings. The status change is one conditional update, so double clicks save once.
+- **Start alerts:** the worker claims (task, owner) in `task_alerts.notified_user_ids` with one atomic UPDATE before sending, and gives the claim back if the send fails.
 
 ## Docker
 | Service | Port (Host) | Health Check |
@@ -145,3 +147,4 @@ DATABASE_URL="postgresql://deployflow:change-me-in-production@localhost:5438/dep
 | `20261118000000_add_project_time_zone` | projects.time_zone (default America/Chicago) |
 | `20261119000000_add_cr_fields_lists_permissions` | CR fields, list_values, change_products/documents/links, role_permissions |
 | `20261120000000_task_cr_tag_alert_owners` | tasks.change_request_id, task_alerts.notified_user_ids + reminder_sent_at |
+| `20261121000000_completion_email_once` | tasks.completion_email_sent_at (completion email sent once) |

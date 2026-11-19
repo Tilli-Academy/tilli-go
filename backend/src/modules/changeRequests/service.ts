@@ -1,6 +1,7 @@
 import type { Prisma } from '@prisma/client';
 import prisma from '../../config/prisma';
 import logger from '../../config/logger';
+import { checkUpload } from '../../utils/fileType';
 import { AppError } from '../../utils/errors';
 import type { JwtPayload } from '../../types';
 import { DECISIONS, FINISHED, OPEN_STATUSES, findTransition, transitionsFor, type Decision } from './workflow';
@@ -512,11 +513,13 @@ async function editable(id: string) {
 
 const MAX_BYTES = 10 * 1024 * 1024;
 
-export async function addAttachment(id: string, fileName: string, mimeType: string, data: Buffer, user: JwtPayload) {
+export async function addAttachment(id: string, fileName: string, data: Buffer, user: JwtPayload) {
   const cr = await prisma.changeRequest.findUnique({ where: { id } });
   if (!cr) throw new AppError('Change request not found', 404);
   if (!fileName || data.length === 0) throw new AppError('Empty file', 400);
   if (data.length > MAX_BYTES) throw new AppError('File is larger than 10 MB', 413);
+  // Allowed types only; the stored type comes from the file itself, not the browser.
+  const mimeType = checkUpload(fileName, data);
   const key = await storage.saveFile(cr.number, fileName, data);
   const [att] = await prisma.$transaction([
     prisma.changeAttachment.create({
