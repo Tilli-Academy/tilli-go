@@ -23,7 +23,7 @@ docker/    docker-compose.yml, *.Dockerfile, api-entrypoint.sh, nginx/nginx.conf
 
 ## Data Model
 - **User** — id, email, password, name, role
-- **Project** — id, name, code (unique), description
+- **Project** — id, name, code (unique), description, timeZone, startAlertsEnabled. Groups one or more change requests and owns the optional cutover (its tasks)
 - **Task** — id, system, taskName, description, assignedTeam, assignedUserId, plannedStartTime, plannedEndTime, actualStartTime, actualEndTime, status, notes, projectId, sequenceNumber
 - **TaskDependency** — taskId, dependsOnTaskId (unique pair)
 - **AuditLog** — taskId, action, field, oldValue, newValue, userId
@@ -136,3 +136,4 @@ DATABASE_URL="postgresql://deployflow:change-me-in-production@localhost:5438/dep
 | `20260417120000_add_project_support` | Project model, projectId + sequenceNumber on Task |
 | `20261116000000_add_change_requests` | ChangeRequest, ChangeEvent, ChangeAttachment |
 | `20261117000000_add_start_time_alerts` | projects.start_alerts_enabled, TaskAlert |
+| `20261118000000_add_project_time_zone` | projects.time_zone (default America/Chicago) |

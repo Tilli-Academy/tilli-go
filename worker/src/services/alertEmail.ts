@@ -107,7 +107,7 @@ ${row('Planned end', escapeHtml(formatWhen(task.plannedEndTime, tz, false)))}
 <div style="margin-top:16px;border:1px solid #bfe8d1;background:#eefaf3;border-radius:10px;padding:10px 12px;font-size:13.5px;color:#0b6b43"><b>✓ All earlier steps are done</b><br>${done}</div>
 ${notes}
 <p style="margin:20px 0 0"><a href="${ackUrl}" style="display:inline-block;padding:12px 20px;background:#2563eb;color:#ffffff;text-decoration:none;border-radius:10px;font-weight:600;font-size:15px">Acknowledge &amp; start</a></p>
-<p style="font-size:12px;color:#5f6c80;margin:10px 0 0">The button opens a Tilli-go page — nothing changes until you click there. The link works only for this task and expires 12 hours after the planned end.</p>`;
+<p style="font-size:12px;color:#5f6c80;margin:10px 0 0">Link expires 12 hours after the planned end.</p>`;
 
   const footer = `You're getting this because you own ${escapeHtml(code)} in ${escapeHtml(task.project.name)}. Questions? Just reply — it goes to Release Management.`;
   return { subject, html: shell(inner, footer), ackUrl };
@@ -127,7 +127,7 @@ export function buildManagerNotice(
     failed: `[Tilli-go] Alert for ${code} could not be delivered`,
   };
   const explain = {
-    no_owner: 'This task reached its start time and everything before it is done, but nobody is assigned. Tilli-go never guesses an address, so please make sure someone picks it up.',
+    no_owner: 'Due to start and everything before it is done, but nobody is assigned. It is on hold until someone is.',
     blocked_domain: `The owner's address (${escapeHtml(detail ?? '')}) is not a company address, so Tilli-go did not email it. Please contact the owner directly.`,
     failed: `Tilli-go tried several times and could not deliver the alert${detail ? ` (${escapeHtml(detail)})` : ''}. Please contact the owner directly.`,
   };

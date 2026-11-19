@@ -1,4 +1,4 @@
-import { useCallback, useContext, useEffect, useState } from 'react';
+import { useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { ProjectContext } from '../../App';
 import api, { getErrorMessage } from '../../services/api';
 import { alertLabel, hhmm, type TaskAlertInfo } from './alertMeta';
@@ -62,7 +62,11 @@ export default function AlertsPanel({ projectId, timeZone, onChanged }: { projec
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
 
+  // Paused while the live rehearsal is rebuilt: its old project is deleted, so a poll
+  // in that moment would ask for a project that no longer exists (404).
+  const paused = useRef(false);
   const load = useCallback(() => {
+    if (paused.current) return;
     api.get<AlertData>(`/alerts/projects/${projectId}`)
       .then((r) => { setData(r.data); setError(null); })
       .catch((e) => setError(getErrorMessage(e)));
@@ -75,9 +79,9 @@ export default function AlertsPanel({ projectId, timeZone, onChanged }: { projec
     return () => clearInterval(h);
   }, [load]);
 
-  const run = async (key: string, fn: () => Promise<unknown>) => {
+  const run = async (key: string, fn: () => Promise<unknown>, reload = true) => {
     setBusy(key); setError(null);
-    try { await fn(); load(); onChanged(); } catch (e) { setError(getErrorMessage(e)); } finally { setBusy(null); }
+    try { await fn(); if (reload) { load(); onChanged(); } } catch (e) { setError(getErrorMessage(e)); } finally { setBusy(null); }
   };
 
   if (!data) return error ? <p className="text-sm text-rose-700">{error}</p> : null;
@@ -88,17 +92,20 @@ export default function AlertsPanel({ projectId, timeZone, onChanged }: { projec
   return (
     <section className="bg-surface border border-border rounded-card shadow-card" aria-labelledby="alerts-h">
       <div className="flex flex-wrap items-center gap-3 border-b border-border p-4">
-        <div className="mr-auto">
-          <h3 id="alerts-h" className="text-base font-semibold text-text-primary">Start-time alerts</h3>
-          <p className="text-xs text-text-secondary">When a task's planned start arrives and everything before it is done, its owner is emailed: "your task is ready to start now".</p>
-        </div>
+        <h3 id="alerts-h" className="mr-auto text-base font-semibold text-text-primary" title="The owner is emailed when the planned start arrives and everything before the task is done.">Start-time alerts</h3>
         {data.demoTools && (
           <button type="button" disabled={!!busy}
             onClick={() => run('demo', async () => {
-              const r = await api.post<{ id: string }>('/alerts/demo/live-plan');
-              await refreshProjects();
-              setSelectedProjectId(r.data.id);
-            })}
+              paused.current = true;
+              try {
+                const r = await api.post<{ id: string }>('/alerts/demo/live-plan');
+                // Switch to the new project first; the panel then reloads for it on its own.
+                setSelectedProjectId(r.data.id);
+                await refreshProjects();
+              } finally {
+                paused.current = false;
+              }
+            }, false)}
             className="rounded-lg border border-border-strong px-3 py-1.5 text-xs font-medium text-text-secondary hover:bg-surface-hover disabled:opacity-50">
             {busy === 'demo' ? 'Building…' : '▶ Start live rehearsal'}
           </button>
@@ -167,21 +174,17 @@ export default function AlertsPanel({ projectId, timeZone, onChanged }: { projec
             </table>
           </div>
           {!on && alerted.length === 0 && (
-            <p className="text-xs text-text-secondary">Alerts are <b>off</b> for this project, so planning and dry runs never email anyone. {data.canManage ? 'Switch them on when the cutover goes live.' : 'A release manager switches them on when the cutover goes live.'}</p>
+            <p className="text-xs text-text-secondary">Off — nobody is emailed for this project.</p>
           )}
         </div>
 
         <div className="space-y-3 min-w-0">
-          <div className="rounded-lg border border-border p-3 text-xs space-y-1">
-            <p className="font-semibold text-text-primary text-sm mb-1">Safety rules</p>
-            <p>• <b>Off by default</b> — new projects never email anyone until switched on.</p>
-            {data.settings && <p>• <b>Company addresses only</b> — {data.settings.allowedDomains.map((d) => `@${d}`).join(', ')}.</p>}
-            <p>• <b>One alert per task</b> — no duplicate emails.</p>
-            <p>• <b>One click to confirm</b> — opening the link changes nothing, so email scanners can't confirm by accident.</p>
-            <p className="pt-1 text-text-muted">{data.settings ? `From ${data.settings.fromAddress} · replies to ${data.settings.replyTo}` : 'Mail worker not running'} · times in {zoneLabel(timeZone)} and UTC</p>
-          </div>
+          <p className="text-xs text-text-muted" title="New projects start Off · only company addresses are emailed · one alert per task · opening the email link changes nothing until the owner clicks">
+            {data.settings ? `From ${data.settings.fromAddress} · replies to ${data.settings.replyTo}` : 'Mail worker not running'} · {zoneLabel(timeZone)} + UTC
+            {data.settings && <> · only {data.settings.allowedDomains.map((d) => `@${d}`).join(', ')}</>}
+          </p>
           <div className="rounded-lg border border-border">
-            <p className="border-b border-border px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-text-secondary">Alert history · updates every 10 s</p>
+            <p className="border-b border-border px-3 py-2 text-[11px] font-semibold uppercase tracking-wide text-text-secondary">Alert history</p>
             <ul className="max-h-72 overflow-y-auto px-3 py-2 text-xs">
               {data.events.length === 0 && <li className="py-2 text-text-muted">Nothing yet. Checked every minute.</li>}
               {data.events.map((e) => {

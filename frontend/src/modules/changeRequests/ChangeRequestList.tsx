@@ -5,6 +5,8 @@ import { crApi } from './api';
 import type { ChangeListItem, CrMeta, CrStatus } from './types';
 import { Avatar, PriorityTag, STATUS_FLOW, STATUS_META, StatusPill, btnPrimary, card, crNo, fmtDate, inputCls, relDays, Level } from './ui';
 
+const RECENT_DAYS = 30;
+
 const selectCls = 'px-3 py-2 min-h-[40px] border border-border-strong rounded-md bg-surface text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-primary';
 
 export default function ChangeRequestList() {
@@ -16,11 +18,13 @@ export default function ChangeRequestList() {
   const [q, setQ] = useState(sp.get('q') ?? '');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [showClosed, setShowClosed] = useState(false);
+  const [showOlder, setShowOlder] = useState(false);
 
   const load = useCallback(() => {
     setLoading(true);
     crApi
-      .list({ status: sp.get('status') ?? '', product: sp.get('product') ?? '', q: sp.get('q') ?? '', mine: sp.get('mine') === '1', conflicts: sp.get('conflicts') === '1' })
+      .list({ status: sp.get('status') ?? '', product: sp.get('product') ?? '', q: sp.get('q') ?? '', mine: sp.get('mine') === '1', conflicts: sp.get('conflicts') === '1', project: sp.get('project') ?? '' })
       .then((r) => { setItems(r.data.data); setCounts(r.data.counts); setError(null); })
       .catch((e) => setError(getErrorMessage(e)))
       .finally(() => setLoading(false));
@@ -40,7 +44,7 @@ export default function ChangeRequestList() {
   const week = new Date(today.getTime() + 7 * 86400000);
   const live7 = items.filter((c) => STATUS_FLOW.slice(0, 5).includes(c.status) && new Date(c.plannedGoLive) >= today && new Date(c.plannedGoLive) < week).length;
   const conflicts = items.filter((c) => c.hasConflict).length;
-  const filtered = ['status', 'product', 'q', 'mine', 'conflicts'].some((k) => sp.get(k));
+  const filtered = ['status', 'product', 'q', 'mine', 'conflicts', 'project'].some((k) => sp.get(k));
 
   const tiles = [
     { label: 'Open changes', value: open, tone: 'text-primary bg-primary-light', on: () => setSp(new URLSearchParams(view === 'table' ? { view } : {})) },
@@ -48,16 +52,17 @@ export default function ChangeRequestList() {
     { label: 'Going live in 7 days', value: live7, tone: 'text-emerald-700 bg-emerald-50', on: undefined },
     { label: 'Date conflicts', value: conflicts, tone: conflicts ? 'text-rose-700 bg-rose-50' : 'text-text-secondary bg-surface-hover', on: () => setParam('conflicts', '1') },
   ];
-  const columns: CrStatus[] = sp.get('status') ? [sp.get('status') as CrStatus] : [...STATUS_FLOW, ...(items.some((c) => c.status === 'CANCELLED') ? (['CANCELLED'] as CrStatus[]) : [])];
+  // Board: the open stages share the width; Closed (incl. cancelled) is a narrow strip until opened.
+  const onlyStatus = sp.get('status') as CrStatus | null;
+  const columns: CrStatus[] = onlyStatus ? [onlyStatus] : STATUS_FLOW;
+  const inColumn = (s: CrStatus) => items.filter((c) => (s === 'CLOSED' && !onlyStatus ? c.status === 'CLOSED' || c.status === 'CANCELLED' : c.status === s));
+  const recentCutoff = Date.now() - RECENT_DAYS * 86400000;
 
   return (
     <div className="flex-1 overflow-y-auto">
       <div className="p-4 sm:p-6 space-y-6 max-w-[1400px] mx-auto">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <h2 className="text-xl font-semibold text-text-primary">Change Requests</h2>
-            <p className="text-sm text-text-secondary mt-1">Every change to production, from request to go-live. A cutover plan is a Tilli-go project linked to its change request.</p>
-          </div>
+          <h2 className="text-xl font-semibold text-text-primary">Change Requests</h2>
           <Link to="/change-requests/new" className={btnPrimary}>+ New Change Request</Link>
         </div>
 
@@ -98,16 +103,36 @@ export default function ChangeRequestList() {
         {view === 'board' ? (
           <div className="flex gap-3 overflow-x-auto pb-3">
             {columns.map((s) => {
-              const list = items.filter((c) => c.status === s);
+              const all = inColumn(s);
+              const closedCol = s === 'CLOSED' && !onlyStatus;
+              const recent = closedCol && !showOlder ? all.filter((c) => new Date(c.updatedAt).getTime() >= recentCutoff) : all;
+              const collapsed = !onlyStatus && (closedCol ? !showClosed : all.length === 0);
+              const label = closedCol ? 'Closed' : STATUS_META[s].label;
+              if (collapsed) {
+                return (
+                  <button key={s} type="button" disabled={!closedCol} onClick={() => setShowClosed(true)}
+                    title={closedCol ? `Show recently closed (${all.length} closed in total)` : `${label}: empty`}
+                    className="flex w-11 flex-none flex-col items-center gap-2 rounded-card bg-slate-100/80 py-3 text-text-secondary enabled:hover:bg-slate-200/80 disabled:cursor-default">
+                    <span className="rounded-full bg-surface px-2 text-xs font-semibold">{all.length}</span>
+                    <span className="text-sm font-semibold [writing-mode:vertical-rl]">{label}</span>
+                  </button>
+                );
+              }
               return (
-                <div key={s} className="w-64 flex-shrink-0 rounded-card bg-slate-100/80 p-2.5">
-                  <div className="mb-2.5 flex items-center justify-between px-1">
-                    <span className="text-sm font-semibold text-text-primary">{STATUS_META[s].label}</span>
-                    <span className="rounded-full bg-surface px-2 text-xs font-semibold text-text-secondary">{list.length}</span>
+                <div key={s} className="min-w-[220px] flex-1 rounded-card bg-slate-100/80 p-2.5 lg:min-w-0">
+                  <div className="mb-2.5 flex items-center justify-between gap-2 px-1">
+                    <span className="truncate text-sm font-semibold text-text-primary">{closedCol ? 'Recently closed' : label}</span>
+                    <span className="flex items-center gap-1.5">
+                      <span className="rounded-full bg-surface px-2 text-xs font-semibold text-text-secondary">{recent.length}</span>
+                      {closedCol && <button type="button" onClick={() => { setShowClosed(false); setShowOlder(false); }} className="text-xs text-text-secondary hover:text-primary" title="Collapse" aria-label="Collapse closed">✕</button>}
+                    </span>
                   </div>
                   <div className="space-y-2">
-                    {list.map((c) => <Card key={c.id} c={c} />)}
-                    {list.length === 0 && <p className="py-6 text-center text-xs text-text-muted">Empty</p>}
+                    {recent.map((c) => <Card key={c.id} c={c} />)}
+                    {recent.length === 0 && <p className="py-6 text-center text-xs text-text-muted">{closedCol ? `None in the last ${RECENT_DAYS} days` : 'Empty'}</p>}
+                    {closedCol && !showOlder && all.length > recent.length && (
+                      <button type="button" onClick={() => setShowOlder(true)} className="w-full py-1 text-xs text-primary hover:underline">Show {all.length - recent.length} older</button>
+                    )}
                   </div>
                 </div>
               );
@@ -117,7 +142,7 @@ export default function ChangeRequestList() {
           <div className={`${card} overflow-x-auto`}>
             <table className="w-full text-sm">
               <thead className="bg-surface-hover text-left text-xs uppercase tracking-wide text-text-secondary">
-                <tr>{['CR', 'Title', 'Product', 'Status', 'Priority', 'Impact / Risk', 'Go-live', 'Cutover', 'Assignee'].map((h) => <th key={h} className="px-4 py-3 font-semibold">{h}</th>)}</tr>
+                <tr>{['CR', 'Title', 'Product', 'Status', 'Priority', 'Impact / Risk', 'Go-live', 'Project', 'Assignee'].map((h) => <th key={h} className="px-4 py-3 font-semibold">{h}</th>)}</tr>
               </thead>
               <tbody>
                 {items.map((c) => (
@@ -129,7 +154,7 @@ export default function ChangeRequestList() {
                     <td className="px-4 py-3"><PriorityTag priority={c.priority} /></td>
                     <td className="px-4 py-3 whitespace-nowrap"><Level label="I" value={c.impact} /> · <Level label="R" value={c.risk} /></td>
                     <td className="px-4 py-3 whitespace-nowrap">{fmtDate(c.plannedGoLive)}<span className="block text-xs text-text-muted">{relDays(c.plannedGoLive)}</span></td>
-                    <td className="px-4 py-3 whitespace-nowrap text-xs">{c.cutover ? `${c.cutover.completed}/${c.cutover.total} done` : c.needsCutover ? 'not created' : '-'}</td>
+                    <td className="px-4 py-3 whitespace-nowrap text-xs">{c.project ? <><span className="font-mono">{c.project.code}</span>{c.cutover && c.cutover.total > 0 && <span className="block text-text-muted">{c.cutover.completed}/{c.cutover.total} done</span>}</> : '-'}</td>
                     <td className="px-4 py-3"><span className="flex items-center gap-2 whitespace-nowrap"><Avatar name={c.assignee.name} small />{c.assignee.name}</span></td>
                   </tr>
                 ))}

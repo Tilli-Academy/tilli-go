@@ -1,12 +1,12 @@
 import api from '../../services/api';
 import type { ChangeDetail, ChangeListItem, Conflict, CrMeta, CrStatus } from './types';
 
-export interface ListParams { status?: string; product?: string; q?: string; mine?: boolean; conflicts?: boolean }
+export interface ListParams { status?: string; product?: string; q?: string; mine?: boolean; conflicts?: boolean; project?: string }
 
 export const crApi = {
   list: (p: ListParams) =>
     api.get<{ data: ChangeListItem[]; counts: Record<string, number> }>('/change-requests', {
-      params: { status: p.status || undefined, product: p.product || undefined, q: p.q || undefined, mine: p.mine ? '1' : undefined, conflicts: p.conflicts ? '1' : undefined },
+      params: { status: p.status || undefined, product: p.product || undefined, q: p.q || undefined, mine: p.mine ? '1' : undefined, conflicts: p.conflicts ? '1' : undefined, project: p.project || undefined },
     }),
   meta: () => api.get<CrMeta>('/change-requests/meta'),
   conflicts: (product: string, date: string, exclude?: string) =>
@@ -15,7 +15,9 @@ export const crApi = {
   create: (body: Record<string, unknown>) => api.post<{ id: string; number: number }>('/change-requests', body),
   transition: (id: string, to: CrStatus, reason?: string) => api.post(`/change-requests/${id}/transition`, { to, reason }),
   comment: (id: string, message: string) => api.post(`/change-requests/${id}/comments`, { message }),
-  createCutover: (id: string) => api.post<{ id: string; code: string }>(`/change-requests/${id}/cutover`),
+  /** Pick a project (null = none) or create one; a project can hold several change requests. */
+  setProject: (id: string, body: { projectId: string | null } | { create: { name: string; code: string; timeZone: string } }) =>
+    api.put<{ project: { id: string; code: string } | null }>(`/change-requests/${id}/project`, body),
   upload: (id: string, file: File) =>
     api.post(`/change-requests/${id}/attachments`, file, {
       headers: { 'Content-Type': 'application/octet-stream', 'X-File-Name': encodeURIComponent(file.name), 'X-File-Type': file.type || 'application/octet-stream' },

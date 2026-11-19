@@ -3,8 +3,6 @@ import type React from "react";
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import {
   LayoutGridIcon,
-  LayersIcon,
-  ListChecksIcon,
   FlagIcon,
   CalendarIcon,
   UserIcon,
@@ -21,11 +19,10 @@ interface NavItem {
 }
 
 const navItems: NavItem[] = [
-  { to: "/dashboard", label: "Dashboard", icon: LayoutGridIcon },
+  // Change requests are the top level; a CR's tasks are opened from the CR itself.
   { to: "/change-requests", label: "Change Requests", icon: FlagIcon },
-  { to: "/projects", label: "Projects", icon: LayersIcon },
-  { to: "/tasks", label: "Tasks", icon: ListChecksIcon },
   { to: "/timeline", label: "Timeline", icon: CalendarIcon },
+  { to: "/dashboard", label: "Dashboard", icon: LayoutGridIcon },
   { to: "/profile", label: "Profile", icon: UserIcon },
 ];
 

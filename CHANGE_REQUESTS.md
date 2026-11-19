@@ -1,8 +1,11 @@
 # Change Request module
 
 Adds change requests (CR / CAB requests) to Tilli-go. A CR tracks one change from request to production.
-Its optional **cutover plan is a normal Tilli-go project** (code `CR-<number>`), so the existing task grid,
-dependencies, scheduler and email worker run the go-live unchanged.
+A CR **belongs to a project** (e.g. a release or wave); one project can group several CRs. The project
+**owns the optional cutover**: its task plan. So the existing task grid, dependencies, scheduler and email
+worker run the go-live unchanged. A CR picks or creates its project (from its page or when it is raised) and
+can change project until implementation starts. Projects created earlier as `CR-<number>` stay as ordinary
+projects holding their CR; no data was moved.
 
 ## Life cycle
 `New → Assess & Authorize → Scheduled → Implement → Review → Closed` (+ `Cancelled`)
@@ -11,8 +14,8 @@ dependencies, scheduler and email worker run the go-live unchanged.
 |---|---|
 | Only approver roles (`CR_APPROVER_ROLES`, default `admin`) can approve Assess → Scheduled | `workflow.ts` |
 | Back moves (bug found, rollback) need a reason; going back to Assess/New clears the approval | `service.ts` |
-| Implement needs the cutover plan to exist (if the CR needs one) | `service.ts` |
-| Review needs every cutover task Completed | `service.ts` |
+| Implement needs a plan (if the CR needs a cutover): a project with at least one task | `service.ts` |
+| Review needs every task in the project's plan Completed | `service.ts` |
 | Same product + same go-live day + both open = date conflict warning | `service.ts` |
 
 ## What changed in existing code
@@ -35,7 +38,7 @@ New code lives in `backend/src/modules/changeRequests/` and `frontend/src/module
 | GET | `/:id` | detail with history, attachments, conflicts, allowed transitions |
 | POST | `/:id/transition` | `{ to, reason? }` |
 | POST | `/:id/comments` | `{ message }` |
-| POST | `/:id/cutover` | create + link the cutover project |
+| PUT | `/:id/project` | `{ projectId }` (null = none) or `{ create: { name, code, timeZone } }`; locked from Implement on |
 | POST | `/:id/attachments` | raw body, headers `X-File-Name`, `X-File-Type` (10 MB max) |
 | GET | `/:id/attachments/:attachmentId` | download (only images/PDF open inline) |
 

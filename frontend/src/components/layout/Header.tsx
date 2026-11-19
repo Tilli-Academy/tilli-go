@@ -6,7 +6,7 @@ import "./header.css";
 
 const pageTitles: Record<string, string> = {
   "/dashboard": "Dashboard",
-  "/tasks": "Task Management",
+  "/tasks": "Cutover Tasks",
   "/projects": "Projects",
   "/profile": "Profile",
   "/change-requests": "Change Requests",
@@ -85,6 +85,13 @@ export default function Header({ onToggleMobile }: HeaderProps) {
           <MenuIcon />
         </button>
         <h1 className="dfh-title">{title}</h1>
+        {/* Tasks and Timeline are opened from a change request: link back to it. */}
+        {(location.pathname === "/tasks" || location.pathname === "/timeline") &&
+          projects.find((p) => p.id === selectedProjectId)?.changeRequests?.map((c) => (
+            <Link key={c.id} to={`/change-requests/${c.id}`} className="dfh-back" title={c.title}>
+              ← CR-{c.number}
+            </Link>
+          ))}
       </div>
       <div className="dfh-right">
         <ProjectSelect

@@ -26,7 +26,7 @@ function loadSharedAuth(): SharedAuth {
   if (!sharedUser) {
     const raw = fs.readFileSync(SHARED_AUTH_PATH, 'utf-8');
     sharedUser = JSON.parse(raw) as SharedAuth;
-    sharedHelper = new ApiHelper(sharedUser.token, API_URL);
+    sharedHelper = new ApiHelper(sharedUser.token, API_URL, sharedUser.id);
   }
   return sharedUser;
 }

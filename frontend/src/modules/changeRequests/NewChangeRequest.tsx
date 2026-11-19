@@ -1,4 +1,5 @@
-import React, { useEffect, useState } from 'react';
+import React, { useContext, useEffect, useState } from 'react';
+import { ProjectContext } from '../../App';
 import { Link, useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { getErrorMessage } from '../../services/api';
@@ -25,10 +26,11 @@ function currentUserId(): string | null {
 export default function NewChangeRequest() {
   const navigate = useNavigate();
   const [meta, setMeta] = useState<CrMeta | null>(null);
+  const { projects } = useContext(ProjectContext);
   const [f, setF] = useState({
     title: '', description: '', product: 'Nudge', changeType: 'Normal', releaseType: 'Minor release',
     priority: 'Medium', impact: 'Medium', risk: 'Low', customer: '', labels: '', plannedGoLive: '', dueDate: '',
-    assigneeId: '', reporterId: '', needsCutover: true,
+    assigneeId: '', reporterId: '', needsCutover: true, projectId: '',
   });
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [conflicts, setConflicts] = useState<Conflict[]>([]);
@@ -59,6 +61,7 @@ export default function NewChangeRequest() {
         ...f,
         customer: f.customer || undefined,
         dueDate: f.dueDate || undefined,
+        projectId: f.projectId || undefined,
         labels: f.labels.split(',').map((s) => s.trim()).filter(Boolean),
       });
       toast(`${crNo(res.data.number)} created`, 'success');
@@ -82,7 +85,6 @@ export default function NewChangeRequest() {
         <div>
           <Link to="/change-requests" className="text-sm text-primary hover:underline">← All change requests</Link>
           <h2 className="mt-1 text-xl font-semibold text-text-primary">New Change Request</h2>
-          <p className="text-sm text-text-secondary">Every change to production starts here, so it can be tracked from development to go-live.</p>
         </div>
 
         <section className={`${card} p-5 space-y-4`}>
@@ -130,7 +132,7 @@ export default function NewChangeRequest() {
               <Err k="plannedGoLive" /></div>
             <div><label htmlFor="cr-due" className={labelCls}>Due date (optional)</label>
               <input id="cr-due" type="date" value={f.dueDate} onChange={(e) => set('dueDate')(e.target.value)} className={inputCls} /></div>
-            <div><label htmlFor="cr-customer" className={labelCls}>Customer / project (optional)</label>
+            <div><label htmlFor="cr-customer" className={labelCls}>Customer (optional)</label>
               <input id="cr-customer" value={f.customer} onChange={(e) => set('customer')(e.target.value)} className={inputCls} placeholder="Leave empty for internal changes" /></div>
             <div><label htmlFor="cr-labels" className={labelCls}>Labels (comma separated)</label>
               <input id="cr-labels" value={f.labels} onChange={(e) => set('labels')(e.target.value)} className={inputCls} placeholder="api, onboarding" /></div>
@@ -148,10 +150,16 @@ export default function NewChangeRequest() {
           <label className="flex items-start gap-3 rounded-lg border border-border p-4">
             <input type="checkbox" checked={f.needsCutover} onChange={(e) => set('needsCutover')(e.target.checked)} className="mt-1" />
             <span>
-              <span className="block text-sm font-semibold text-text-primary">This change needs a cutover plan</span>
-              <span className="text-xs text-text-secondary">A Tilli-go project with step-by-step go-live tasks, owners and email reminders.</span>
+              <span className="block text-sm font-semibold text-text-primary" title="The go-live tasks of the change's project">Needs a cutover plan</span>
             </span>
           </label>
+          <div>
+            <label htmlFor="cr-project" className="mb-1 block text-sm font-medium text-text-primary">Project</label>
+            <select id="cr-project" value={f.projectId} onChange={(e) => set('projectId')(e.target.value)} className={inputCls}>
+              <option value="">Choose later</option>
+              {projects.map((p) => <option key={p.id} value={p.id}>{p.code} · {p.name}</option>)}
+            </select>
+          </div>
         </section>
 
         <div className="flex justify-end gap-2 pb-6">

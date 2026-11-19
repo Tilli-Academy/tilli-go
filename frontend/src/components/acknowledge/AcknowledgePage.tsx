@@ -116,7 +116,7 @@ export default function AcknowledgePage() {
               {view === 'saving' ? 'Acknowledging task...' : 'Acknowledge & start'}
             </button>
             <p className="mt-3 text-xs text-text-secondary">
-              Opening this link did nothing by itself, so email security scanners can't confirm by accident. The link only works for this task and expires 12 hours after the planned end.
+              Link expires 12 hours after the planned end.
             </p>
           </div>
         )}
@@ -133,7 +133,7 @@ export default function AcknowledgePage() {
               <dt className="text-text-secondary">Status</dt><dd><span className="inline-block px-2 py-0.5 rounded text-xs font-medium bg-violet-100 text-violet-800">{result.status}</span></dd>
               {result.actualStartTime && (<><dt className="text-text-secondary">Actual start</dt><dd className="text-text-primary">{whenWithUtc(result.actualStartTime, task?.timeZone ?? 'UTC')}</dd></>)}
             </dl>
-            <p className="text-xs text-text-secondary mt-2">The release manager can now see that you've started. When you finish, mark the task Completed in Tilli-go.</p>
+            <p className="text-xs text-text-secondary mt-2">Mark it Completed in Tilli-go when you're done.</p>
           </motion.div>
         )}
 

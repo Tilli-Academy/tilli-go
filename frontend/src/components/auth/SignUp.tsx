@@ -35,7 +35,7 @@ export default function SignUp() {
       localStorage.setItem('token', res.data.token);
       localStorage.setItem('user', JSON.stringify(res.data.user));
       await refreshProjects();
-      navigate('/dashboard');
+      navigate('/change-requests');
     } catch (err: unknown) {
       setError(getErrorMessage(err));
     } finally {

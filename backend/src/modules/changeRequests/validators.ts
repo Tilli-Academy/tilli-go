@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { CHANGE_TYPES, LEVELS, PRIORITIES, PRODUCTS, RELEASE_TYPES } from './options';
 import { CR_STATUSES } from './workflow';
+import { createProjectSchema } from '../../validators/projectValidator';
 
 const dateOnly = z
   .string()
@@ -23,6 +24,8 @@ export const createChangeSchema = z.object({
   needsCutover: z.boolean().default(true),
   assigneeId: z.string().uuid('Choose an assignee'),
   reporterId: z.string().uuid('Choose a reporter'),
+  /** Optional: the project (e.g. release wave) this change belongs to. */
+  projectId: z.string().uuid().optional(),
 });
 export type CreateChangeDTO = z.infer<typeof createChangeSchema>;
 
@@ -34,3 +37,9 @@ export const transitionSchema = z.object({
 export const commentSchema = z.object({
   message: z.string().trim().min(1, 'Comment is empty').max(5000),
 });
+
+/** Pick an existing project (null = none), or create a new one. */
+export const setProjectSchema = z.union([
+  z.object({ projectId: z.string().uuid().nullable() }).strict(),
+  z.object({ create: createProjectSchema }).strict(),
+]);

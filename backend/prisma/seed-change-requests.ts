@@ -1,5 +1,5 @@
 // Demo data for the Change Request module. Safe to re-run: it removes previous
-// CR demo data (change requests + their CR-* cutover projects) and recreates it.
+// CR demo data (change requests + their REL-* / CR-* projects) and recreates it.
 // Dates are relative to today so the demo always looks current.
 // Run from backend/:  DATABASE_URL=... npm run db:seed:cr
 import { PrismaClient } from '@prisma/client';
@@ -27,7 +27,7 @@ async function main(): Promise<void> {
   const vikram = await person('Vikram Iyer', 'admin');
 
   await prisma.changeRequest.deleteMany({});
-  await prisma.project.deleteMany({ where: { code: { startsWith: 'CR-' } } });
+  await prisma.project.deleteMany({ where: { OR: [{ code: { startsWith: 'CR-' } }, { code: { startsWith: 'REL-' } }] } });
   await prisma.$executeRawUnsafe(`ALTER SEQUENCE "change_requests_number_seq" RESTART WITH 1001`);
 
   type Step = { to: string; by: string; daysAgo: number; msg?: string };
@@ -63,13 +63,17 @@ async function main(): Promise<void> {
   const comment = (id: string, actorId: string, message: string, daysAgo: number) =>
     prisma.changeEvent.create({ data: { changeRequestId: id, kind: 'COMMENT', actorId, message, createdAt: ago(daysAgo) } });
 
-  /** Cutover plan = a normal Tilli-go project + tasks, linked to the CR. */
-  async function cutover(c: { id: string; number: number; title: string }, goLive: number, actorId: string, daysAgo: number,
-    tasks: [system: string, taskName: string, team: string, ownerId: string, status: string][]) {
-    const code = `CR-${c.number}`;
-    const p = await prisma.project.create({ data: { code, name: `${code} ${c.title}`.slice(0, 100), description: `Cutover plan for change request ${code}` } });
+  /** A project groups one or more CRs (e.g. a release) and owns the optional cutover plan. */
+  const project = (code: string, name: string) => prisma.project.create({ data: { code, name, startAlertsEnabled: false } });
+  async function link(c: { id: string }, p: { id: string; code: string }, actorId: string, daysAgo: number) {
     await prisma.changeRequest.update({ where: { id: c.id }, data: { projectId: p.id } });
-    await prisma.changeEvent.create({ data: { changeRequestId: c.id, kind: 'CUTOVER', actorId, message: `created the cutover plan (project ${code})`, createdAt: ago(daysAgo) } });
+    await prisma.changeEvent.create({ data: { changeRequestId: c.id, kind: 'CUTOVER', actorId, message: `linked to project ${p.code}`, createdAt: ago(daysAgo) } });
+  }
+
+  /** Simple cutover plan: tasks every 30 min from 09:00 on the go-live day. */
+  async function cutover(c: { id: string }, p: { id: string; code: string }, goLive: number, actorId: string, daysAgo: number,
+    tasks: [system: string, taskName: string, team: string, ownerId: string, status: string][]) {
+    await link(c, p, actorId, daysAgo);
     let seq = 0;
     for (const [system, taskName, assignedTeam, assignedUserId, status] of tasks) {
       const start = at(goLive, 9 + Math.floor(seq / 2), (seq % 2) * 30);
@@ -88,11 +92,8 @@ async function main(): Promise<void> {
 
   type Step2 = { system: string; name: string; team: string; owner: string; start: Date; end: Date | null; status: string; deps?: number[] };
   /** Detailed cutover plan with explicit times and dependencies (by sequence number). */
-  async function plan(c: { id: string; number: number; title: string }, actorId: string, daysAgo: number, steps: Step2[]) {
-    const code = `CR-${c.number}`;
-    const p = await prisma.project.create({ data: { code, name: `${code} ${c.title}`.slice(0, 100), description: `Cutover plan for change request ${code}` } });
-    await prisma.changeRequest.update({ where: { id: c.id }, data: { projectId: p.id } });
-    await prisma.changeEvent.create({ data: { changeRequestId: c.id, kind: 'CUTOVER', actorId, message: `created the cutover plan (project ${code})`, createdAt: ago(daysAgo) } });
+  async function plan(c: { id: string }, p: { id: string; code: string }, actorId: string, daysAgo: number, steps: Step2[]) {
+    await link(c, p, actorId, daysAgo);
     const ids: string[] = [];
     for (const [i, st] of steps.entries()) {
       const done = st.status === 'Completed';
@@ -120,7 +121,8 @@ async function main(): Promise<void> {
       { to: 'REVIEW', by: priya.id, daysAgo: 10 }, { to: 'CLOSED', by: anita.id, daysAgo: 8 },
     ],
   });
-  await cutover(c1, -10, priya.id, 12, [
+  const relOct = await project('REL-OCT', 'October release');
+  await cutover(c1, relOct, -10, priya.id, 12, [
     ['Comms', 'Notify customer of go-live window', 'BA', rahul.id, 'Completed'],
     ['Nudge', 'Deploy Nudge v4.1', 'Dev', priya.id, 'Completed'],
     ['QA', 'Send 3 test WhatsApp nudges', 'QA', arjun.id, 'Completed'],
@@ -135,7 +137,9 @@ async function main(): Promise<void> {
   });
   // CR-1002 shows every cutover case: a multi-day approval, parallel tasks with
   // different owners, a dependency chain, a 0:00 checkpoint and an N/A (open) task.
-  await plan(c2, priya.id, 6, [
+  // One release project holds several change requests; its task plan is the cutover.
+  const relNov = await project('REL-NOV', 'November release');
+  await plan(c2, relNov, priya.id, 6, [
     { system: 'Mgmt', name: 'Management go-live approval', team: 'Management', owner: anita.id, start: at(-3, 9), end: at(0, 8), status: 'Completed' },
     { system: 'Comms', name: 'Send go-live notice to Acme and internal teams', team: 'BA', owner: rahul.id, start: at(0, 9), end: at(0, 9, 30), status: 'Completed', deps: [1] },
     { system: 'DB', name: 'Back up Nudge production database', team: 'DBA', owner: sneha.id, start: at(0, 9), end: at(0, 9, 45), status: 'Completed', deps: [1] },
@@ -149,13 +153,14 @@ async function main(): Promise<void> {
   await comment(c2.id, rahul.id, 'Acme confirmed their sandbox API credentials work. Production keys shared via the vault.', 6);
   await comment(c2.id, arjun.id, 'UAT passed on the quality environment - 42/42 test cases green.', 2);
 
-  await cr({
+  const c3 = await cr({
     title: 'Tilli-go - move email reminders to delayed jobs', product: 'Tilli-go', releaseType: 'Minor release', priority: 'Medium',
     impact: 'Medium', risk: 'Low', labels: ['email', 'worker'], goLive: 2,
     description: 'Replace polling with delayed BullMQ jobs so cutover owners get their email exactly on time.',
     assigneeId: sneha.id, reporterId: anita.id, createdDaysAgo: 9,
     path: [{ to: 'ASSESS', by: sneha.id, daysAgo: 8 }, { to: 'SCHEDULED', by: vikram.id, daysAgo: 3 }],
   });
+  await link(c3, relNov, sneha.id, 3);
   await cr({
     title: 'Nudge - campaign analytics dashboard v2', product: 'Nudge', releaseType: 'Major release', priority: 'High',
     impact: 'Medium', risk: 'Medium', labels: ['analytics'], goLive: 3,

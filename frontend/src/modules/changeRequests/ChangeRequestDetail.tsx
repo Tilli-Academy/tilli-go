@@ -1,16 +1,14 @@
-import React, { useCallback, useContext, useEffect, useRef, useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
-import { ProjectContext } from '../../App';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { Link, useParams } from 'react-router-dom';
 import { getErrorMessage } from '../../services/api';
 import { toast } from '../../components/ui/Toast';
 import { crApi } from './api';
+import ProjectCard from './ProjectCard';
 import type { ChangeDetail, Transition } from './types';
 import { Avatar, Level, PriorityTag, STATUS_FLOW, STATUS_META, StatusPill, btnGhost, btnPrimary, card, crNo, fmtDate, fmtDateTime, inputCls, relDays } from './ui';
 
 export default function ChangeRequestDetail() {
   const { id = '' } = useParams();
-  const navigate = useNavigate();
-  const { refreshProjects, setSelectedProjectId } = useContext(ProjectContext);
   const [cr, setCr] = useState<ChangeDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -37,32 +35,12 @@ export default function ChangeRequestDetail() {
     }
   };
 
-  const openTimeline = async () => {
-    if (!cr?.project) return;
-    await refreshProjects();
-    setSelectedProjectId(cr.project.id);
-    navigate('/timeline');
-  };
-
-  const openCutover = async () => {
-    if (!cr) return;
-    setBusy(true);
-    try {
-      const project = cr.project ?? (await crApi.createCutover(id)).data;
-      await refreshProjects();
-      setSelectedProjectId(project.id);
-      navigate('/tasks');
-    } catch (e) { toast(getErrorMessage(e)); setBusy(false); }
-  };
-
   if (error) return <div className="p-6"><p className="text-sm text-destructive bg-destructive-light p-3 rounded">{error}</p><Link to="/change-requests" className="text-sm text-primary">← Back</Link></div>;
   if (!cr) return <div className="p-6 text-sm text-text-muted">Loading…</div>;
 
   const idx = STATUS_FLOW.indexOf(cr.status);
   const cancelled = cr.status === 'CANCELLED';
   const backMoves = cr.events.filter((e) => e.kind === 'STATUS' && e.fromStatus && e.toStatus && e.toStatus !== 'CANCELLED' && STATUS_FLOW.indexOf(e.toStatus) < STATUS_FLOW.indexOf(e.fromStatus)).length;
-  const pct = cr.cutover && cr.cutover.total ? Math.round((cr.cutover.completed / cr.cutover.total) * 100) : 0;
-  const finished = cr.status === 'CLOSED' || cancelled;
 
   return (
     <div className="flex-1 overflow-y-auto">
@@ -145,34 +123,7 @@ export default function ChangeRequestDetail() {
 
         <div className="grid gap-5 lg:grid-cols-3">
           <div className="space-y-5 lg:col-span-2 min-w-0">
-            {/* Cutover = existing Tilli-go project */}
-            {(cr.needsCutover || cr.project) && (
-              <section className={`${card} p-5`}>
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <div>
-                    <h3 className="font-semibold text-text-primary">Cutover plan</h3>
-                    <p className="text-xs text-text-secondary">Step-by-step go-live tasks in the Tilli-go task grid - owners, times, dependencies and email reminders.</p>
-                  </div>
-                  {cr.project ? (
-                    <div className="flex gap-2">
-                      <button type="button" onClick={openTimeline} disabled={busy} className={btnGhost}>Timeline</button>
-                      <button type="button" onClick={openCutover} disabled={busy} className={btnGhost}>Open tasks ({cr.project.code}) →</button>
-                    </div>
-                  ) : !finished && (
-                    <button type="button" onClick={openCutover} disabled={busy} className={btnPrimary}>+ Create cutover plan</button>
-                  )}
-                </div>
-                {cr.cutover && (
-                  <div className="mt-4">
-                    <div className="mb-1 flex justify-between text-sm"><span className="font-medium text-text-primary">Go-live progress</span><span className="text-text-secondary">{cr.cutover.completed}/{cr.cutover.total} tasks · {pct}%</span></div>
-                    <div className="h-2.5 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full bg-primary transition-all" style={{ width: `${pct}%` }} /></div>
-                    {cr.cutover.blocked > 0 && <p className="mt-2 text-xs font-semibold text-rose-600">{cr.cutover.blocked} task(s) blocked</p>}
-                    {cr.cutover.total === 0 && <p className="mt-2 text-xs text-text-secondary">No tasks yet - open the plan and add the go-live steps.</p>}
-                  </div>
-                )}
-                {!cr.project && !finished && <p className="mt-3 text-xs text-text-muted">Implementation can start only after the cutover plan exists; review needs all its tasks completed.</p>}
-              </section>
-            )}
+            <ProjectCard cr={cr} onChanged={load} />
 
             <section className={`${card} p-5`}>
               <h3 className="mb-2 font-semibold text-text-primary">Description</h3>
@@ -193,7 +144,6 @@ export default function ChangeRequestDetail() {
               <input ref={fileRef} type="file" className="hidden" aria-label="Choose file"
                 onChange={async (e) => { const file = e.target.files?.[0]; e.target.value = ''; if (file) await run(() => crApi.upload(cr.id, file), `Uploaded ${file.name}`); }} />
               <button type="button" onClick={() => fileRef.current?.click()} disabled={busy} className={btnGhost}>📎 Upload file</button>
-              <p className="mt-2 text-xs text-text-muted">Files are stored outside the database. Production target: the SharePoint library via Microsoft Graph, like the Quality System.</p>
             </section>
 
             <section className={`${card} p-5`}>
@@ -226,10 +176,11 @@ export default function ChangeRequestDetail() {
               {([
                 ['Change type', cr.changeType],
                 ['Release type', cr.releaseType],
-                ['Customer / project', cr.customer ?? 'Internal'],
+                ['Customer', cr.customer ?? 'Internal'],
                 ['Planned go-live', `${fmtDate(cr.plannedGoLive)} (${relDays(cr.plannedGoLive)})`],
                 ['Due date', fmtDate(cr.dueDate)],
-                ['Cutover plan', cr.project ? cr.project.code : cr.needsCutover ? 'Not created yet' : 'Not needed'],
+                ['Project', cr.project ? cr.project.code : 'None yet'],
+                ['Cutover', cr.needsCutover ? 'Needed' : 'Not needed'],
               ] as const).map(([k, v]) => (
                 <div key={k} className="flex justify-between gap-3"><span className="text-text-secondary">{k}</span><span className="text-right font-medium text-text-primary">{v}</span></div>
               ))}

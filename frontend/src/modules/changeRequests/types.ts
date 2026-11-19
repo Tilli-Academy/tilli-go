@@ -23,9 +23,14 @@ export interface ChangeRequest {
   status: CrStatus;
   assignee: Person;
   projectId: string | null;
-  project: { id: string; code: string; name?: string } | null;
+  project: {
+    id: string; code: string; name?: string; timeZone?: string;
+    /** All change requests in this project (detail view only). */
+    changeRequests?: { id: string; number: number; title: string; status: CrStatus }[];
+  } | null;
   cutover: CutoverStats | null;
   createdAt: string;
+  updatedAt: string;
 }
 
 export interface ChangeListItem extends ChangeRequest { hasConflict: boolean }

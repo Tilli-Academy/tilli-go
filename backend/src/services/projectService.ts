@@ -11,6 +11,8 @@ export async function list(filters: ProjectFilterParams = {}): Promise<Paginated
 
   const [projects, total] = await Promise.all([
     prisma.project.findMany({
+      // Linked change requests, so the UI can group cutover plans under their CR.
+      include: { changeRequests: { select: { id: true, number: true, title: true }, orderBy: { number: 'asc' } } },
       orderBy: { createdAt: 'asc' },
       skip,
       take: limit,

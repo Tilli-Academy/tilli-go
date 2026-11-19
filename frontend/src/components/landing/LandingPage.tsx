@@ -58,8 +58,8 @@ interface Step {
 
 const features: Feature[] = [
   {
-    title: 'Task Orchestration',
-    desc: 'Create, assign, and schedule deployment tasks with an Excel-like grid interface.',
+    title: 'Cutover tasks',
+    desc: 'Owners, start and end times, and notes for every step of the go-live.',
     icon: (
       <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
@@ -68,8 +68,8 @@ const features: Feature[] = [
     ),
   },
   {
-    title: 'Dependency Management',
-    desc: 'Define task dependencies with automatic cycle detection and blocking resolution.',
+    title: 'Dependencies',
+    desc: 'A task waits until the steps before it are done. Loops are rejected.',
     icon: (
       <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
@@ -78,8 +78,8 @@ const features: Feature[] = [
     ),
   },
   {
-    title: 'Email Notifications',
-    desc: 'Automatic email alerts with secure one-click acknowledgement links.',
+    title: 'Start-time alerts',
+    desc: 'The owner gets an email when their task can start and confirms with one click.',
     icon: (
       <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
@@ -88,8 +88,8 @@ const features: Feature[] = [
     ),
   },
   {
-    title: 'Real-time Dashboard',
-    desc: 'Live overview of deployment status, task progress, and team activity.',
+    title: 'Dashboard',
+    desc: 'Where every task in the plan stands.',
     icon: (
       <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
@@ -100,9 +100,9 @@ const features: Feature[] = [
 ];
 
 const steps: Step[] = [
-  { title: 'Create Tasks', desc: 'Add deployment tasks with schedules, teams, and descriptions.' },
-  { title: 'Set Dependencies', desc: 'Link tasks together so they execute in the right order.' },
-  { title: 'Auto-Orchestrate', desc: 'The scheduler triggers tasks, sends emails, and tracks completion.' },
+  { title: 'Raise the change', desc: 'Create a change request and get it approved.' },
+  { title: 'Plan the cutover', desc: 'Add the tasks, owners, times and what each one waits for.' },
+  { title: 'Run it', desc: 'Each task starts on time and its owner is emailed.' },
 ];
 
 /* ─── main component ─────────────────────────────────────────────────── */
@@ -136,7 +136,7 @@ export default function LandingPage() {
           >
             {isLoggedIn ? (
               <Link
-                to="/dashboard"
+                to="/change-requests"
                 className="px-4 py-2 bg-primary text-white text-sm font-medium rounded-lg hover:bg-primary-hover transition-colors cursor-pointer focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2"
               >
                 Go to Dashboard
@@ -176,7 +176,7 @@ export default function LandingPage() {
             transition={{ delay: 0.2, duration: 0.6 }}
           >
             <span className="text-sm text-stone-300 font-medium">
-              Deployment Orchestration Platform
+              Change and cutover management
             </span>
           </motion.div>
 
@@ -187,9 +187,9 @@ export default function LandingPage() {
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.35, duration: 0.7, ease: EASE_OUT }}
           >
-            Deploy with confidence,
+            Change requests and cutovers,
             <br />
-            not spreadsheets
+            in one place
           </motion.h1>
 
           {/* Subheading */}
@@ -199,8 +199,7 @@ export default function LandingPage() {
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.55, duration: 0.6 }}
           >
-            Replace fragile spreadsheets with an automated, event-driven platform.
-            Manage tasks, resolve dependencies, and track deployments in real time.
+            Approve changes, plan the cutover step by step, and tell each owner when their task can start.
           </motion.p>
 
           {/* CTAs */}
@@ -212,7 +211,7 @@ export default function LandingPage() {
           >
             {isLoggedIn ? (
               <Link
-                to="/dashboard"
+                to="/change-requests"
                 className="group px-8 py-3.5 bg-white text-teal-800 font-semibold rounded-xl hover:bg-teal-50 transition-all duration-300 cursor-pointer shadow-md hover:shadow-lg hover:-translate-y-0.5"
               >
                 Go to Dashboard
@@ -262,15 +261,8 @@ export default function LandingPage() {
               custom={1}
               className="mt-3 text-3xl sm:text-4xl font-bold text-stone-900 tracking-tight"
             >
-              Everything you need
+              What's in it
             </motion.h2>
-            <motion.p
-              variants={fadeUp}
-              custom={2}
-              className="mt-4 text-stone-500 max-w-lg mx-auto"
-            >
-              Powerful features to manage your deployment pipeline end-to-end.
-            </motion.p>
           </AnimatedSection>
 
           <AnimatedSection className="mt-16 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-8">
@@ -308,7 +300,7 @@ export default function LandingPage() {
               custom={1}
               className="mt-3 text-3xl sm:text-4xl font-bold text-stone-900 tracking-tight"
             >
-              Three simple steps
+              How a release runs
             </motion.h2>
           </AnimatedSection>
 
@@ -344,22 +336,15 @@ export default function LandingPage() {
             custom={0}
             className="text-3xl sm:text-4xl font-bold text-stone-900 tracking-tight"
           >
-            Ready to streamline your deployments?
+            Planning the next release?
           </motion.h2>
-          <motion.p
-            variants={fadeUp}
-            custom={1}
-            className="mt-4 text-stone-500 max-w-lg mx-auto"
-          >
-            Stop juggling spreadsheets. Start orchestrating with confidence.
-          </motion.p>
           <motion.div
             variants={fadeUp}
             custom={2}
             className="mt-8"
           >
             <Link
-              to={isLoggedIn ? '/dashboard' : '/signup'}
+              to={isLoggedIn ? '/change-requests' : '/signup'}
               className="inline-flex items-center gap-2 px-8 py-3.5 bg-primary text-white font-semibold rounded-xl hover:bg-primary-hover transition-all duration-300 cursor-pointer shadow-md hover:shadow-lg hover:-translate-y-0.5 focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
             >
               {isLoggedIn ? 'Go to Dashboard' : 'Get Started Free'}

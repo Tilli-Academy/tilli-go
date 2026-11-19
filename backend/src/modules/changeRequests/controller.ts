@@ -20,6 +20,7 @@ export const list = handle(async (req, res) => {
         q: str(req.query.q),
         mine: req.query.mine === '1',
         conflictsOnly: req.query.conflicts === '1',
+        projectId: str(req.query.project),
       },
       req.user!,
     ),
@@ -56,8 +57,8 @@ export const comment = handle(async (req, res) => {
   res.status(201).json(await service.addComment(req.params.id as string, req.body.message, req.user!));
 });
 
-export const createCutover = handle(async (req, res) => {
-  res.status(201).json(await service.createCutover(req.params.id as string, req.user!));
+export const setProject = handle(async (req, res) => {
+  res.json({ project: await service.setProject(req.params.id as string, req.body, req.user!) });
 });
 
 export const upload = handle(async (req, res) => {

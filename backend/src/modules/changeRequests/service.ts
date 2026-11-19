@@ -17,6 +17,7 @@ export interface ListFilters {
   q?: string;
   mine?: boolean;
   conflictsOnly?: boolean;
+  projectId?: string;
 }
 
 /** Cutover progress for linked Tilli-go projects: { projectId: { total, completed, blocked } } */
@@ -40,6 +41,7 @@ export async function list(filters: ListFilters, user: JwtPayload) {
   if (filters.status) where.status = filters.status;
   if (filters.product) where.product = filters.product;
   if (filters.mine) where.assigneeId = user.id;
+  if (filters.projectId) where.projectId = filters.projectId;
   if (filters.q) {
     where.OR = [
       { title: { contains: filters.q, mode: 'insensitive' } },
@@ -99,7 +101,12 @@ export async function getById(id: string, user: JwtPayload) {
       assignee: PERSON,
       reporter: PERSON,
       approvedBy: PERSON,
-      project: { select: { id: true, code: true, name: true } },
+      project: {
+        select: {
+          id: true, code: true, name: true, timeZone: true,
+          changeRequests: { select: { id: true, number: true, title: true, status: true }, orderBy: { number: 'asc' } },
+        },
+      },
       events: { include: { actor: PERSON }, orderBy: { createdAt: 'desc' } },
       attachments: { orderBy: { createdAt: 'desc' } },
     },
@@ -121,6 +128,9 @@ export async function getById(id: string, user: JwtPayload) {
 export async function create(dto: CreateChangeDTO, user: JwtPayload) {
   const people = await prisma.user.count({ where: { id: { in: [dto.assigneeId, dto.reporterId] } } });
   if (people < (dto.assigneeId === dto.reporterId ? 1 : 2)) throw new AppError('Assignee or reporter not found', 400);
+  if (dto.projectId && !(await prisma.project.findUnique({ where: { id: dto.projectId }, select: { id: true } }))) {
+    throw new AppError('Project not found', 400);
+  }
   const cr = await prisma.changeRequest.create({
     data: {
       ...dto,
@@ -142,13 +152,16 @@ export async function transition(id: string, to: string, reason: string | undefi
   if (t.needsReason && (!reason || reason.length < 5)) throw new AppError('Please give a short reason (5+ characters)', 400);
 
   // Gates tied to the cutover plan (the existing Tilli-go project).
-  if (to === 'IMPLEMENT' && cr.needsCutover && !cr.projectId) {
-    throw new AppError('Create the cutover plan before starting implementation', 409);
+  // Implement needs a plan: a project with at least one task.
+  if (to === 'IMPLEMENT' && cr.needsCutover) {
+    if (!cr.projectId) throw new AppError('Pick or create the project before starting implementation', 409);
+    const tasks = await prisma.task.count({ where: { projectId: cr.projectId } });
+    if (tasks === 0) throw new AppError("The project's cutover plan has no tasks yet", 409);
   }
   if (to === 'REVIEW' && cr.projectId) {
     const s = (await cutoverStats([cr.projectId]))[cr.projectId];
     if (s && s.completed < s.total) {
-      throw new AppError(`Cutover not finished: ${s.completed}/${s.total} tasks completed`, 409);
+      throw new AppError(`Project cutover not finished: ${s.completed}/${s.total} tasks completed`, 409);
     }
   }
 
@@ -188,33 +201,47 @@ export async function addComment(id: string, message: string, user: JwtPayload) 
   });
 }
 
+/** A CR can change project until implementation starts; after that its plan is fixed. */
+const PROJECT_LOCKED: string[] = ['IMPLEMENT', 'REVIEW', 'CLOSED', 'CANCELLED'];
+
+export type ProjectChoice =
+  | { projectId: string | null }
+  | { create: { name: string; code: string; timeZone?: string; description?: string } };
+
 /**
- * Creates the cutover plan as a normal Tilli-go project, linked to this CR.
- * Everything happens in one transaction that first locks the CR row, so a double
- * click waits for the first request and then just returns the plan it made.
+ * A project groups one or more change requests (e.g. a release wave) and owns the
+ * optional cutover: its task plan. A CR picks an existing project, creates a new one,
+ * or (before implementation) leaves its project. The CR row is locked so two clicks
+ * can't create two projects.
  */
-export async function createCutover(id: string, user: JwtPayload) {
-  const { project, created } = await prisma.$transaction(async (tx) => {
+export async function setProject(id: string, choice: ProjectChoice, user: JwtPayload) {
+  const result = await prisma.$transaction(async (tx) => {
     const locked = await tx.$queryRaw<Array<{ id: string }>>`SELECT id FROM "change_requests" WHERE id = ${id} FOR UPDATE`;
     if (locked.length === 0) throw new AppError('Change request not found', 404);
-    const cr = await tx.changeRequest.findUniqueOrThrow({ where: { id } });
-    if (cr.projectId) return { project: await tx.project.findUniqueOrThrow({ where: { id: cr.projectId } }), created: false };
-    if (['CLOSED', 'CANCELLED'].includes(cr.status)) throw new AppError('This change request is finished', 409);
+    const cr = await tx.changeRequest.findUniqueOrThrow({ where: { id }, include: { project: { select: { code: true } } } });
+    if (PROJECT_LOCKED.includes(cr.status)) {
+      throw new AppError('The project can only be changed before implementation starts', 409);
+    }
 
-    let code = `CR-${cr.number}`;
-    for (let i = 2; await tx.project.findUnique({ where: { code } }); i++) code = `CR-${cr.number}-${i}`;
+    let project: { id: string; code: string } | null = null;
+    if ('create' in choice) {
+      if (await tx.project.findUnique({ where: { code: choice.create.code } })) throw new AppError('Project code already exists', 409);
+      project = await tx.project.create({ data: choice.create, select: { id: true, code: true } });
+    } else if (choice.projectId) {
+      project = await tx.project.findUnique({ where: { id: choice.projectId }, select: { id: true, code: true } });
+      if (!project) throw new AppError('Project not found', 404);
+    }
+    if ((project?.id ?? null) === cr.projectId) return { changed: false, project };
 
-    const p = await tx.project.create({
-      data: { code, name: `${code} ${cr.title}`.slice(0, 100), description: `Cutover plan for change request ${code}` },
-    });
-    await tx.changeRequest.update({ where: { id }, data: { projectId: p.id, needsCutover: true } });
-    await tx.changeEvent.create({
-      data: { changeRequestId: id, kind: 'CUTOVER', actorId: user.id, message: `created the cutover plan (project ${code})` },
-    });
-    return { project: p, created: true };
+    await tx.changeRequest.update({ where: { id }, data: { projectId: project?.id ?? null } });
+    const message = project
+      ? `${'create' in choice ? 'created and linked' : cr.projectId ? 'moved to' : 'linked to'} project ${project.code}${cr.project ? ` (was ${cr.project.code})` : ''}`
+      : `removed from project ${cr.project?.code ?? ''}`;
+    await tx.changeEvent.create({ data: { changeRequestId: id, kind: 'CUTOVER', actorId: user.id, message } });
+    return { changed: true, project };
   });
-  if (created) logger.info({ crId: id, projectId: project.id }, 'Cutover project created for change request');
-  return project;
+  if (result.changed) logger.info({ crId: id, projectId: result.project?.id ?? null }, 'Change request project changed');
+  return result.project;
 }
 
 const MAX_BYTES = 10 * 1024 * 1024;

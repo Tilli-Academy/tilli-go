@@ -48,7 +48,11 @@ export interface Project {
   description: string | null;
   createdAt: string;
   updatedAt: string;
+  timeZone?: string;
+  /** Change requests in this project (a project can group several). */
+  changeRequests?: { id: string; number: number; title: string }[];
 }
+
 
 export interface UserSummary {
   id: string;

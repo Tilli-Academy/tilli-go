@@ -180,7 +180,6 @@ export default function Timeline() {
         <div>
           <h2 className="text-xl font-semibold text-text-primary">Cutover timeline · {project?.code ?? data.project.code}</h2>
           <p className="text-xs text-text-muted" title={tz}>Times in {zoneLabel(tz)} ({tz})</p>
-          <p className="text-sm text-text-secondary">One row per owner. Tasks side by side run in parallel; tasks linked by a dependency run one by one. Click a task to trace it.</p>
         </div>
 
         <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
@@ -205,7 +204,6 @@ export default function Timeline() {
               const a = model.byId.get(c.a)!; const b = model.byId.get(c.b)!;
               return <span key={i}>{i > 0 && ' · '}#{a.sequenceNumber} & #{b.sequenceNumber} ({owner(a)})</span>;
             })}
-            <span className="block text-xs text-rose-700 mt-1">These came from existing data. New edits that clash are rejected - change the owner or time, or add a dependency.</span>
           </div>
         )}
 
@@ -262,13 +260,7 @@ export default function Timeline() {
 
           <aside className="bg-surface border border-border rounded-card shadow-card p-4 text-sm h-fit lg:sticky lg:top-4">
             {!sel ? (
-              <div className="space-y-2 text-text-secondary">
-                <p className="font-semibold text-text-primary">How to read it</p>
-                <p>• Bars in the <b>same row</b> happen one after another.</p>
-                <p>• A lane with <b>several rows</b> means that owner has overlapping work - only allowed for long-running (waiting) tasks.</p>
-                <p>• ◆ is a <b>0:00 checkpoint</b>; striped bars are <b>multi-day</b> tasks such as approvals; faded bars have <b>no estimate (N/A)</b>.</p>
-                <p>• Click any task to see what it waits for and what it blocks.</p>
-              </div>
+              <p className="text-text-secondary">Select a task to see what it waits for and what it blocks.</p>
             ) : (
               <TaskPanel t={sel} model={model} code={data.project.code} tz={tz} onPick={setSelected} />
             )}
@@ -311,13 +303,21 @@ function Bar({ t, pct, from, to, clash, dim, role, onClick }: {
   const left = Math.max(pct(s), 0);
   const right = Math.min(pct(e), 100);
   const style: React.CSSProperties = { left: `${left}%`, width: `max(${right - left}%, 6px)` };
-  if (kind === 'long-running') style.backgroundImage = 'repeating-linear-gradient(135deg, rgba(255,255,255,.55) 0 6px, transparent 6px 12px)';
-  if (kind === 'no-estimate') style.maskImage = style.WebkitMaskImage = 'linear-gradient(90deg, #000 55%, transparent)';
+  const look: React.CSSProperties = {};
+  if (kind === 'long-running') look.backgroundImage = 'repeating-linear-gradient(135deg, rgba(255,255,255,.55) 0 6px, transparent 6px 12px)';
+  if (kind === 'no-estimate') look.maskImage = look.WebkitMaskImage = 'linear-gradient(90deg, #000 55%, transparent)';
+  // The bar is often too short for the name, so hovering or focusing shows it in full straight away.
   return (
-    <button type="button" onClick={onClick} title={label} aria-label={label} style={style}
-      className={`${base} rounded-md border text-left px-1.5 text-[11px] font-medium truncate ${STATUS[t.status] ?? STATUS.Pending} ${clash ? '!border-2 !border-rose-500' : ''}`}>
-      {s < from && '◀ '}{t.alert && <span aria-hidden="true">{alertLabel(t.alert).icon} </span>}#{t.sequenceNumber} {t.taskName}{e > to && ' ▶'}
-    </button>
+    <div className={`group absolute top-1.5 h-7 ${dim ? 'opacity-25' : ''} hover:z-20 focus-within:z-20`} style={style}>
+      <button type="button" onClick={onClick} aria-label={label}
+        className={`h-full w-full cursor-pointer transition-opacity ${ring} rounded-md border text-left px-1.5 text-[11px] font-medium truncate ${STATUS[t.status] ?? STATUS.Pending} ${clash ? '!border-2 !border-rose-500' : ''}`}
+        style={look}>
+        {s < from && '◀ '}{t.alert && <span aria-hidden="true">{alertLabel(t.alert).icon} </span>}#{t.sequenceNumber} {t.taskName}{e > to && ' ▶'}
+      </button>
+      <span role="tooltip" className="pointer-events-none absolute bottom-full left-0 mb-1 hidden max-w-xs whitespace-normal rounded-md bg-slate-900 px-2 py-1 text-xs text-white shadow-lg group-hover:block group-focus-within:block">
+        {label}
+      </span>
+    </div>
   );
 }
 
@@ -363,11 +363,12 @@ function Chip({ on, onClick, children }: { on: boolean; onClick: () => void; chi
 }
 
 function Legend({ kind }: { kind: DurationKind }) {
-  if (kind === 'milestone') return <span className="flex items-center gap-1"><span className="inline-block h-2.5 w-2.5 rotate-45 border-2 border-violet-600 bg-violet-300" />0:00 checkpoint</span>;
+  if (kind === 'milestone') return <span className="flex items-center gap-1" title="Zero-length step, e.g. Go / No-Go"><span className="inline-block h-2.5 w-2.5 rotate-45 border-2 border-violet-600 bg-violet-300" />0:00 checkpoint</span>;
   const style: React.CSSProperties = kind === 'long-running' ? { backgroundImage: 'repeating-linear-gradient(135deg, rgba(255,255,255,.6) 0 3px, transparent 3px 6px)' }
     : kind === 'no-estimate' ? { maskImage: 'linear-gradient(90deg,#000 40%,transparent)', WebkitMaskImage: 'linear-gradient(90deg,#000 40%,transparent)' } : {};
   const text = kind === 'long-running' ? 'multi-day' : kind === 'no-estimate' ? 'no estimate (N/A)' : 'timed task';
-  return <span className="flex items-center gap-1"><span className="inline-block h-3 w-5 rounded border border-sky-300 bg-sky-200" style={style} />{text}</span>;
+  const help = kind === 'long-running' ? '24 h or more, e.g. waiting for an approval. Does not block its owner.' : kind === 'no-estimate' ? 'No planned end' : 'Bars in one row run one after another';
+  return <span className="flex items-center gap-1" title={help}><span className="inline-block h-3 w-5 rounded border border-sky-300 bg-sky-200" style={style} />{text}</span>;
 }
 
 function Empty({ text }: { text: string }) {
