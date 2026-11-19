@@ -5,27 +5,28 @@ import {
   forwardRef,
   useImperativeHandle,
 } from 'react';
+import { isLockedStatus } from '../../../utils/constants';
 import type { ICellEditorParams, ICellRendererParams } from 'ag-grid-community';
 import type { Task } from '../../../types';
+import { DEFAULT_TIME_ZONE, dateTimeIn, fromZonedInput, toZonedInput, zoneName } from '../../../utils/zoneTime';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-/** Convert ISO string to "YYYY-MM-DDTHH:mm" in the browser's local timezone. */
-function toLocalInput(iso: string | null | undefined): string {
-  if (!iso) return '';
-  const d = new Date(iso);
-  const pad = (n: number) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
-}
+// Times are shown and typed in the PROJECT's zone (passed in the grid context),
+// never the browser's: a release manager in India and an owner in Chicago see and
+// enter the same 21:00 CST.
+const zoneOf = (context: unknown): string =>
+  (context as { timeZone?: string } | undefined)?.timeZone ?? DEFAULT_TIME_ZONE;
 
 // ── Cell Renderer ─────────────────────────────────────────────────────────────
 
 export function DateTimeRenderer(params: ICellRendererParams<Task, string | null>) {
   const value = params.value;
-  const isCompleted = params.data?.status === 'Completed';
+  const isCompleted = isLockedStatus(params.data?.status); // Completed or N/A
   const isEmpty = !value;
 
-  const displayText = value ? new Date(value).toLocaleString() : null;
+  const timeZone = zoneOf(params.context);
+  const displayText = value ? dateTimeIn(value, timeZone) : null;
 
   // Completed tasks: show value or dash, no edit affordance
   if (isCompleted) {
@@ -94,7 +95,8 @@ interface DateTimeEditorHandle {
  */
 const DateTimeEditor = forwardRef<DateTimeEditorHandle, ICellEditorParams<Task, string | null>>(
   (props, ref) => {
-    const [value, setValue] = useState(toLocalInput(props.value));
+    const timeZone = zoneOf(props.context);
+    const [value, setValue] = useState(toZonedInput(props.value, timeZone));
     const inputRef = useRef<HTMLInputElement>(null);
     const field = props.colDef.field!;
     const rowId = props.data!.id;
@@ -105,7 +107,7 @@ const DateTimeEditor = forwardRef<DateTimeEditorHandle, ICellEditorParams<Task, 
     /** Read the current value from the DOM (avoids React state batching issues). */
     const readDom = (): string | null => {
       const v = inputRef.current?.value || '';
-      return v ? new Date(v).toISOString() : null;
+      return v ? fromZonedInput(v, timeZone) : null;
     };
 
     useEffect(() => {
@@ -157,7 +159,7 @@ const DateTimeEditor = forwardRef<DateTimeEditorHandle, ICellEditorParams<Task, 
         onMouseDown={(e) => e.stopPropagation()}
       >
         <label style={{ fontSize: '11px', fontWeight: 600, color: '#57534e', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-          Date &amp; Time (Local)
+          Date &amp; Time ({zoneName(timeZone)})
         </label>
         <input
           ref={inputRef}

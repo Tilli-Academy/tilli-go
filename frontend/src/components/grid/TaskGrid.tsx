@@ -5,7 +5,8 @@ import 'ag-grid-community/styles/ag-theme-alpine.css';
 import { usePermissions } from '../../hooks/usePermissions';
 import type { ColDef, CellValueChangedEvent, GetRowIdParams, RowClassParams } from 'ag-grid-community';
 
-import { columnDefs } from './columnDefs';
+import { buildColumnDefs } from './columnDefs';
+import { DEFAULT_TIME_ZONE } from '../../utils/zoneTime';
 import { useTaskData } from '../../hooks/useTaskData';
 import { ProjectContext } from '../../App';
 import { toast } from '../ui/Toast';
@@ -15,7 +16,12 @@ import type { Task, UpdateTaskInput } from '../../types';
 export default function TaskGrid() {
   const { can } = usePermissions();
   const gridRef = useRef<AgGridReact<Task>>(null);
-  const { selectedProjectId } = useContext(ProjectContext);
+  const { selectedProjectId, projects } = useContext(ProjectContext);
+  const project = projects.find((p) => p.id === selectedProjectId);
+  // Times in the grid are shown and typed in the project's zone (named in the headers).
+  const timeZone = project?.timeZone ?? DEFAULT_TIME_ZONE;
+  const changeRequests = project?.changeRequests;
+  const columnDefs = useMemo(() => buildColumnDefs({ timeZone, changeRequests: changeRequests ?? [] }), [timeZone, changeRequests]);
   const { tasks, loading, error, addTask, updateTask, deleteTask, fetchTasks, patchTaskLocal } =
     useTaskData(selectedProjectId);
 
@@ -79,8 +85,8 @@ export default function TaskGrid() {
   /** Passed to AG Grid `context` so popup editors can update fields directly,
    *  bypassing the cellValueChanged event which can be unreliable for popups. */
   const gridContext = useMemo(
-    () => ({ applyFieldUpdate }),
-    [applyFieldUpdate]
+    () => ({ applyFieldUpdate, timeZone }),
+    [applyFieldUpdate, timeZone]
   );
 
   // ── Add Task ───────────────────────────────────────────────────────────────
@@ -149,7 +155,7 @@ export default function TaskGrid() {
     'row-status-pending':      (params: RowClassParams<Task>) => params.data?.status === 'Pending',
     'row-status-triggered':    (params: RowClassParams<Task>) => params.data?.status === 'Triggered',
     'row-status-acknowledged': (params: RowClassParams<Task>) => params.data?.status === 'Acknowledged',
-    'row-status-completed':    (params: RowClassParams<Task>) => params.data?.status === 'Completed',
+    'row-status-completed':    (params: RowClassParams<Task>) => params.data?.status === 'Completed' || params.data?.status === 'N/A',
     'row-status-blocked':      (params: RowClassParams<Task>) => params.data?.status === 'Blocked',
   }), []);
 

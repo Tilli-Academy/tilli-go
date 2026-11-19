@@ -11,7 +11,7 @@ import { resetLivePlan } from './livePlan';
 const router = Router();
 router.use(auth);
 
-const ALERT_ACTIONS = ['EMAIL_SENT', 'ALERT_NO_OWNER', 'ALERT_FAILED', 'ALERT_RETRY', 'ALERT_BLOCKED_DOMAIN'];
+const ALERT_ACTIONS = ['EMAIL_SENT', 'ALERT_NO_OWNER', 'ALERT_NO_OWNER_REMINDER', 'ALERT_FAILED', 'ALERT_RETRY', 'ALERT_BLOCKED_DOMAIN'];
 
 router.get('/projects/:projectId', async (req, res, next) => {
   try {

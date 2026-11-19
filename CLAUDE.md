@@ -33,6 +33,7 @@ docker/    docker-compose.yml, *.Dockerfile, api-entrypoint.sh, nginx/nginx.conf
 ## Task Statuses & Transitions
 `Pending → Triggered → Acknowledged → Completed` (immutable once Completed)
 `Pending ↔ Blocked` (scheduler manages based on dependency state)
+`Pending | Blocked | Triggered → N/A` — not needed in this cutover; counts as done for dependencies (all 4 checks) and is immutable like Completed
 
 **Lifecycle:** Scheduler enqueues eligible Pending tasks → Worker sets Triggered + sends email → User clicks email link → Acknowledged → User completes via grid UI.
 
@@ -59,6 +60,8 @@ docker/    docker-compose.yml, *.Dockerfile, api-entrypoint.sh, nginx/nginx.conf
 | GET | /api/acknowledge/preview | Token | Read-only task details for the confirm page |
 | POST | /api/acknowledge | Token | Acknowledge (owner clicked "Acknowledge & start") |
 | GET | /api/acknowledge | Token | Read-only (same as /preview); never acknowledges |
+| GET | /api/complete(/preview) | Token | Read-only details for the completion confirm page |
+| POST | /api/complete | Token | Complete (owner clicked "Mark as completed"; token must name the current owner) |
 | GET/PATCH | /api/alerts/projects/:id | JWT | Start-time alerts switch, status, history (see CHANGE_REQUESTS.md) |
 | GET | /api/auth/permissions | JWT | The signed-in user's permissions |
 | GET/POST/PATCH/PUT/DELETE | /api/lists | JWT | Managed dropdown lists (writes need admin.lists) |
@@ -141,3 +144,4 @@ DATABASE_URL="postgresql://deployflow:change-me-in-production@localhost:5438/dep
 | `20261117000000_add_start_time_alerts` | projects.start_alerts_enabled, TaskAlert |
 | `20261118000000_add_project_time_zone` | projects.time_zone (default America/Chicago) |
 | `20261119000000_add_cr_fields_lists_permissions` | CR fields, list_values, change_products/documents/links, role_permissions |
+| `20261120000000_task_cr_tag_alert_owners` | tasks.change_request_id, task_alerts.notified_user_ids + reminder_sent_at |

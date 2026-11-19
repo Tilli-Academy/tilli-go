@@ -32,14 +32,14 @@ export const meta = handle(async (req, res) => {
 });
 
 export const conflicts = handle(async (req, res) => {
-  // ?products=id1,id2&date=YYYY-MM-DD
+  // ?products=id1,id2&date=YYYY-MM-DD (the go-live day in the CR's project zone)
   const products = (str(req.query.products) ?? '').split(',').filter((x) => /^[0-9a-f-]{36}$/i.test(x));
-  const date = new Date(`${str(req.query.date) ?? ''}T00:00:00.000Z`);
-  if (products.length === 0 || isNaN(date.getTime())) {
+  const day = str(req.query.date) ?? '';
+  if (products.length === 0 || !/^\d{4}-\d{2}-\d{2}$/.test(day)) {
     res.json({ conflicts: [] });
     return;
   }
-  res.json({ conflicts: await service.findConflicts(products, date, str(req.query.exclude)) });
+  res.json({ conflicts: await service.findConflicts(products, day, str(req.query.exclude)) });
 });
 
 export const getById = handle(async (req, res) => {

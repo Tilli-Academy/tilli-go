@@ -1,6 +1,9 @@
 import prisma from '../config/prisma';
 import { canTaskExecute, canTasksExecuteBatch } from './dependencyService';
-import { addTaskJob, addCompletionJob, addNoOwnerJob } from './queueService';
+import { addTaskJob, addCompletionJob, addNoOwnerJob, addNoOwnerReminderJob } from './queueService';
+
+/** One reminder to Release Management this long after the no-owner notice (an Admin setting later). */
+export const NO_OWNER_REMINDER_MS = 15 * 60_000;
 import logger from '../config/logger';
 import type { SchedulerStats } from '../types';
 
@@ -98,7 +101,7 @@ export async function tick(): Promise<void> {
         system: true,
         assignedTeam: true,
         assignedUserId: true,
-        alert: { select: { status: true } },
+        alert: { select: { status: true, sentAt: true, reminderSentAt: true } },
       },
     });
 
@@ -114,7 +117,11 @@ export async function tick(): Promise<void> {
         if (executable && !task.assignedUserId) {
           // A task with no owner never starts: hold it (stays Pending) and tell
           // Release Management once. It starts on the first tick after someone is assigned.
-          if (task.alert?.status !== 'NO_OWNER') await addNoOwnerJob(task);
+          const a = task.alert;
+          if (a?.status !== 'NO_OWNER') await addNoOwnerJob(task);
+          else if (!a.reminderSentAt && a.sentAt && now.getTime() - a.sentAt.getTime() >= NO_OWNER_REMINDER_MS) {
+            await addNoOwnerReminderJob(task);
+          }
           held++;
         } else if (executable) {
           await addTaskJob(task);

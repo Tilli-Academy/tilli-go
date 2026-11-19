@@ -5,7 +5,8 @@ import { crApi } from './api';
 import type { ChangeListItem, CrStatus } from './types';
 import { useLists } from '../../hooks/useLists';
 import { usePermissions } from '../../hooks/usePermissions';
-import { Avatar, PriorityTag, STATUS_FLOW, STATUS_META, StatusPill, btnPrimary, card, crNo, fmtDate, inputCls, relDays, Level } from './ui';
+import { Avatar, PriorityTag, STATUS_FLOW, STATUS_META, StatusPill, btnPrimary, card, crNo, crZone, fmtGoLive, inputCls, relDays, Level } from './ui';
+import { dayIn, timeIn } from '../../utils/zoneTime';
 
 const RECENT_DAYS = 30;
 
@@ -43,9 +44,8 @@ export default function ChangeRequestList() {
   };
 
   const open = STATUS_FLOW.slice(0, 5).reduce((a, s) => a + (counts[s] ?? 0), 0);
-  const today = new Date(); today.setUTCHours(0, 0, 0, 0);
-  const week = new Date(today.getTime() + 7 * 86400000);
-  const live7 = items.filter((c) => STATUS_FLOW.slice(0, 5).includes(c.status) && new Date(c.plannedGoLive) >= today && new Date(c.plannedGoLive) < week).length;
+  const now = Date.now();
+  const live7 = items.filter((c) => STATUS_FLOW.slice(0, 5).includes(c.status) && Date.parse(c.plannedGoLive) >= now && Date.parse(c.plannedGoLive) < now + 7 * 86400000).length;
   const conflicts = items.filter((c) => c.hasConflict).length;
   const filtered = ['status', 'product', 'q', 'mine', 'conflicts', 'project'].some((k) => sp.get(k));
 
@@ -156,7 +156,7 @@ export default function ChangeRequestList() {
                     <td className="px-4 py-3"><StatusPill status={c.status} /></td>
                     <td className="px-4 py-3"><PriorityTag priority={c.priority} /></td>
                     <td className="px-4 py-3 whitespace-nowrap"><Level label="I" value={c.impact} risk={risk} /> · <Level label="R" value={c.risk} risk={risk} /></td>
-                    <td className="px-4 py-3 whitespace-nowrap">{fmtDate(c.plannedGoLive)}<span className="block text-xs text-text-muted">{relDays(c.plannedGoLive)}</span></td>
+                    <td className="px-4 py-3 whitespace-nowrap">{fmtGoLive(c.plannedGoLive, crZone(c))}<span className="block text-xs text-text-muted">{relDays(c.plannedGoLive, crZone(c))}</span></td>
                     <td className="px-4 py-3 whitespace-nowrap text-xs">{c.project ? <><span className="font-mono">{c.project.code}</span>{c.cutover && c.cutover.total > 0 && <span className="block text-text-muted">{c.cutover.completed}/{c.cutover.total} done</span>}</> : '-'}</td>
                     <td className="px-4 py-3"><span className="flex items-center gap-2 whitespace-nowrap"><Avatar name={c.assignee.name} small />{c.assignee.name}</span></td>
                   </tr>
@@ -191,7 +191,7 @@ function Card({ c }: { c: ChangeListItem }) {
         </div>
       )}
       <div className="flex items-center justify-between text-xs text-text-secondary">
-        <span>Go-live {fmtDate(c.plannedGoLive)}</span>
+        <span title={fmtGoLive(c.plannedGoLive, crZone(c))}>Go-live {dayIn(c.plannedGoLive, crZone(c))}, {timeIn(c.plannedGoLive, crZone(c))}</span>
         <Avatar name={c.assignee.name} small />
       </div>
       {c.hasConflict && <p className="mt-2 text-xs font-semibold text-rose-600">⚠ Same-day go-live, same product</p>}

@@ -4,6 +4,7 @@ import StatusPill from "./StatusPill";
 import { ActivityIcon, CalendarIcon, InboxIcon } from "./DashboardIcons";
 import type { Task } from "../../types";
 import "./recent-tasks.css";
+import { whenWithUtc, zoneName } from "../../utils/zoneTime";
 
 // Explicit table roles are intentional: the responsive CSS changes the
 // display of rows and cells, which would otherwise drop table semantics.
@@ -13,18 +14,18 @@ const TIME_OPTS: Intl.DateTimeFormatOptions = { hour: "2-digit", minute: "2-digi
 
 const Dash = () => <span className="dfd-tasks-none">—</span>;
 
-// Same instant and local timezone as before; the title keeps the full string.
-function PlannedStart({ value }: { value: string }) {
+// In the project's zone (the column header names it); the title adds UTC.
+function PlannedStart({ value, timeZone }: { value: string; timeZone: string }) {
   const d = new Date(value);
   return (
-    <time className="dfd-tasks-when" dateTime={value} title={d.toLocaleString()}>
-      <span className="dfd-tasks-date">{d.toLocaleDateString(undefined, DATE_OPTS)}</span>{" "}
-      <span className="dfd-tasks-time">{d.toLocaleTimeString(undefined, TIME_OPTS)}</span>
+    <time className="dfd-tasks-when" dateTime={value} title={whenWithUtc(value, timeZone)}>
+      <span className="dfd-tasks-date">{d.toLocaleDateString("en-GB", { ...DATE_OPTS, timeZone })}</span>{" "}
+      <span className="dfd-tasks-time">{d.toLocaleTimeString("en-GB", { ...TIME_OPTS, timeZone })}</span>
     </time>
   );
 }
 
-function TaskRow({ task, index }: { task: Task; index: number }) {
+function TaskRow({ task, index, timeZone }: { task: Task; index: number; timeZone: string }) {
   const displayId = `${task.project?.code ?? ""}-${task.sequenceNumber ?? ""}`;
   return (
     <tr role="row" className="dfd-tasks-row" style={{ "--i": index } as React.CSSProperties}>
@@ -57,7 +58,7 @@ function TaskRow({ task, index }: { task: Task; index: number }) {
       </td>
       <td role="cell" className="dfd-tasks-td dfd-tasks-c-start">
         <CalendarIcon className="dfd-tasks-when-icon" />
-        {task.plannedStartTime ? <PlannedStart value={task.plannedStartTime} /> : <Dash />}
+        {task.plannedStartTime ? <PlannedStart value={task.plannedStartTime} timeZone={timeZone} /> : <Dash />}
       </td>
     </tr>
   );
@@ -65,7 +66,7 @@ function TaskRow({ task, index }: { task: Task; index: number }) {
 
 // `tasks` arrives already sorted (most recently updated first) and limited
 // by the Dashboard; rows are rendered exactly as given.
-export default function RecentTasksTable({ tasks = [] }: { tasks?: Task[] }) {
+export default function RecentTasksTable({ tasks = [], timeZone }: { tasks?: Task[]; timeZone: string }) {
   const titleId = useId();
 
   return (
@@ -102,12 +103,12 @@ export default function RecentTasksTable({ tasks = [] }: { tasks?: Task[] }) {
               <th role="columnheader" scope="col" className="dfd-tasks-th dfd-tasks-c-sys">System</th>
               <th role="columnheader" scope="col" className="dfd-tasks-th dfd-tasks-c-team">Team</th>
               <th role="columnheader" scope="col" className="dfd-tasks-th dfd-tasks-c-status">Status</th>
-              <th role="columnheader" scope="col" className="dfd-tasks-th dfd-tasks-c-start">Planned start</th>
+              <th role="columnheader" scope="col" className="dfd-tasks-th dfd-tasks-c-start">Planned start ({zoneName(timeZone)})</th>
             </tr>
           </thead>
           <tbody role="rowgroup">
             {tasks.map((task, index) => (
-              <TaskRow key={task.id} task={task} index={index} />
+              <TaskRow key={task.id} task={task} index={index} timeZone={timeZone} />
             ))}
             {tasks.length === 0 && (
               <tr role="row" className="dfd-tasks-empty-row">

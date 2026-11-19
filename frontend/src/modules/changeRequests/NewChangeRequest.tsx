@@ -5,6 +5,7 @@ import axios from 'axios';
 import { getErrorMessage } from '../../services/api';
 import { toast } from '../../components/ui/Toast';
 import { useLists } from '../../hooks/useLists';
+import { DEFAULT_TIME_ZONE } from '../../utils/zoneTime';
 import { crApi } from './api';
 import type { Conflict, CrMeta } from './types';
 import ChangeFields, { emptyForm, payload, type CrForm } from './ChangeFields';
@@ -22,6 +23,8 @@ export default function NewChangeRequest() {
   const [f, setF] = useState<CrForm>(emptyForm);
   const [reporterId, setReporterId] = useState('');
   const [projectId, setProjectId] = useState('');
+  // The deployment time is typed in the chosen project's zone (default US Central).
+  const timeZone = projects.find((p) => p.id === projectId)?.timeZone ?? DEFAULT_TIME_ZONE;
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [conflicts, setConflicts] = useState<Conflict[]>([]);
   const [saving, setSaving] = useState(false);
@@ -51,7 +54,7 @@ export default function NewChangeRequest() {
   useEffect(() => {
     if (!f.plannedGoLive || f.productIds.length === 0) { setConflicts([]); return; }
     let live = true;
-    crApi.conflicts(f.productIds, f.plannedGoLive).then((r) => live && setConflicts(r.data.conflicts)).catch(() => {});
+    crApi.conflicts(f.productIds, f.plannedGoLive.slice(0, 10)).then((r) => live && setConflicts(r.data.conflicts)).catch(() => {});
     return () => { live = false; };
   }, [f.productIds, f.plannedGoLive]);
 
@@ -60,7 +63,7 @@ export default function NewChangeRequest() {
     setSaving(true);
     setErrors({});
     try {
-      const body = payload(f);
+      const body = payload(f, timeZone);
       const res = await crApi.create({
         ...body,
         // create: leave optional fields out instead of sending null
@@ -90,7 +93,7 @@ export default function NewChangeRequest() {
 
         <section className={`${card} p-5`}>
           {lists && meta ? (
-            <ChangeFields f={f} set={set} lists={lists} users={meta.users} errors={errors} />
+            <ChangeFields f={f} set={set} lists={lists} users={meta.users} errors={errors} timeZone={timeZone} />
           ) : (
             <p className="text-sm text-text-muted">Loading…</p>
           )}

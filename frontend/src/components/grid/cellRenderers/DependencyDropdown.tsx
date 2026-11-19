@@ -6,6 +6,7 @@ import {
   useEffect,
   useRef,
 } from 'react';
+import { isLockedStatus } from '../../../utils/constants';
 import type { ICellRendererParams, ICellEditorParams, IRowNode } from 'ag-grid-community';
 import type { Task } from '../../../types';
 
@@ -38,7 +39,7 @@ function buildTaskMap(api: ICellRendererParams<Task>['api']): Map<string, TaskIn
 
 export function DependencyRenderer(params: ICellRendererParams<Task, string[]>) {
   const deps = params.value || [];
-  const isCompleted = params.data?.status === 'Completed';
+  const isCompleted = isLockedStatus(params.data?.status); // Completed or N/A
   const applyFieldUpdate = params.context?.applyFieldUpdate as
     | ((rowId: string, field: string, value: unknown) => void)
     | undefined;

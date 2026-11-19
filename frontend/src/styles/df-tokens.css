@@ -59,6 +59,12 @@
   --df-blocked-accent: #d9473d;
   --df-blocked-chart: #e05a4f;
 
+  --df-na-fg: #475569;
+  --df-na-bg: #f1f5f9;
+  --df-na-border: #d7dee8;
+  --df-na-accent: #64748b;
+  --df-na-chart: #94a3b8;
+
   --df-neutral-fg: #3f4b5e;
   --df-neutral-bg: #f3f5f8;
   --df-neutral-border: #dde2e9;
@@ -103,6 +109,7 @@
 .df-tone-acknowledged { --tone-fg: var(--df-acknowledged-fg); --tone-bg: var(--df-acknowledged-bg); --tone-border: var(--df-acknowledged-border); --tone-accent: var(--df-acknowledged-accent); --tone-chart: var(--df-acknowledged-chart); }
 .df-tone-completed { --tone-fg: var(--df-completed-fg); --tone-bg: var(--df-completed-bg); --tone-border: var(--df-completed-border); --tone-accent: var(--df-completed-accent); --tone-chart: var(--df-completed-chart); }
 .df-tone-blocked { --tone-fg: var(--df-blocked-fg); --tone-bg: var(--df-blocked-bg); --tone-border: var(--df-blocked-border); --tone-accent: var(--df-blocked-accent); --tone-chart: var(--df-blocked-chart); }
+.df-tone-na { --tone-fg: var(--df-na-fg); --tone-bg: var(--df-na-bg); --tone-border: var(--df-na-border); --tone-accent: var(--df-na-accent); --tone-chart: var(--df-na-chart); }
 .df-tone-neutral { --tone-fg: var(--df-neutral-fg); --tone-bg: var(--df-neutral-bg); --tone-border: var(--df-neutral-border); --tone-accent: var(--df-neutral-accent); --tone-chart: var(--df-neutral-chart); }
 
 /* Visually hidden, still read by screen readers. */

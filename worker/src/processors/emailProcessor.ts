@@ -11,6 +11,7 @@ import type { EmailJobPayload, EmailProcessorResult } from '../types';
  *   - triggered  → start-time alert to the task owner (one per task)
  *   - completion → "ready for completion" to the task owner
  *   - no_owner   → the task is due but has no owner; Release Management is told
+ *   - no_owner_reminder → still no owner 15 min later; Release Management is reminded once
  *
  * Retries are handled by BullMQ (5 attempts, exponential backoff); only a failed
  * send is retried. The jobId "email-{taskId}-{type}" prevents duplicate enqueues
@@ -32,6 +33,7 @@ const processor = async (job: Job<EmailJobPayload>): Promise<EmailProcessorResul
 
   if (type === 'completion') return sendCompletion(task, log);
   if (type === 'no_owner') return noOwnerNotice(task, log);
+  if (type === 'no_owner_reminder') return noOwnerReminder(task, log);
 
   // ── Default: start-time alert ───────────────────────────────────────
   if (task.status !== 'Triggered') {
@@ -69,7 +71,7 @@ function domainAllowed(email: string): boolean {
 }
 
 /** Best effort: tell the release manager. Never throws. */
-async function tellManager(task: AlertTask, reason: 'no_owner' | 'blocked_domain' | 'failed', detail?: string) {
+async function tellManager(task: AlertTask, reason: 'no_owner' | 'no_owner_reminder' | 'blocked_domain' | 'failed', detail?: string) {
   try {
     const { subject, html } = buildManagerNotice(task, reason, detail);
     await sendMailInternal(config.alerts.releaseManager, subject, html, 'RELEASE MANAGER NOTICE');
@@ -104,9 +106,26 @@ async function noOwnerNotice(task: AlertTask & { status: string }, log: typeof l
   }
   const existing = await prisma.taskAlert.findUnique({ where: { taskId: task.id } });
   if (existing?.status === 'NO_OWNER') return { status: 'skipped', reason: 'already_alerted' };
-  await recordAlert(task.id, { status: 'NO_OWNER', recipient: config.alerts.releaseManager });
+  await recordAlert(task.id, { status: 'NO_OWNER', recipient: config.alerts.releaseManager, sentAt: new Date(), reminderSentAt: null });
   await audit(task.id, 'ALERT_NO_OWNER', `due but no owner — held, release manager told (${config.alerts.releaseManager})`);
   await tellManager(task, 'no_owner');
+  return { status: 'sent' };
+}
+
+/**
+ * One reminder to Release Management, 15 min after the no-owner notice (the scheduler
+ * decides when). Nothing is sent once someone is assigned or the task has moved on.
+ */
+async function noOwnerReminder(task: AlertTask & { status: string }, log: typeof logger): Promise<EmailProcessorResult> {
+  if (task.assignedUser || task.status !== 'Pending') {
+    log.info('Owner assigned (or task moved on) — no reminder');
+    return { status: 'skipped', reason: 'owner_assigned' };
+  }
+  const existing = await prisma.taskAlert.findUnique({ where: { taskId: task.id } });
+  if (existing?.status !== 'NO_OWNER' || existing.reminderSentAt) return { status: 'skipped', reason: 'already_reminded' };
+  await prisma.taskAlert.update({ where: { taskId: task.id }, data: { reminderSentAt: new Date() } });
+  await audit(task.id, 'ALERT_NO_OWNER_REMINDER', `still no owner — release manager reminded (${config.alerts.releaseManager})`);
+  await tellManager(task, 'no_owner_reminder');
   return { status: 'sent' };
 }
 
@@ -119,15 +138,19 @@ async function noOwnerNotice(task: AlertTask & { status: string }, log: typeof l
 async function sendStartAlert(job: Job<EmailJobPayload>, task: AlertTask, log: typeof logger): Promise<EmailProcessorResult> {
   const taskId = task.id;
   const existing = await prisma.taskAlert.findUnique({ where: { taskId } });
-  // A "no owner" or "outside the company" record only counts while it is still true:
-  // once someone (with a company address) is assigned, they get their alert.
-  const stillHandled =
+  // One start alert per task per owner. After a reassignment the new owner gets
+  // theirs; nobody gets the same alert twice. A "no owner" / "outside the company"
+  // record only counts while it is still true.
+  const owner = task.assignedUser;
+  const handled =
     !!existing &&
-    (['SENT', 'ACKNOWLEDGED', 'FAILED'].includes(existing.status) ||
-      (existing.status === 'NO_OWNER' && !task.assignedUser) ||
-      (existing.status === 'BLOCKED_DOMAIN' && existing.recipient === task.assignedUser?.email));
-  if (existing && stillHandled) {
-    log.info({ alertStatus: existing.status }, 'Alert already handled — one alert per task');
+    ((owner && existing.notifiedUserIds.includes(owner.id)) ||
+      existing.status === 'ACKNOWLEDGED' ||
+      (existing.status === 'FAILED' && existing.recipient === owner?.email) ||
+      (existing.status === 'NO_OWNER' && !owner) ||
+      (existing.status === 'BLOCKED_DOMAIN' && existing.recipient === owner?.email));
+  if (existing && handled) {
+    log.info({ alertStatus: existing.status }, 'Alert already sent to this owner — one per task per owner');
     return { status: 'skipped', reason: 'already_alerted' };
   }
 
@@ -165,7 +188,11 @@ async function sendStartAlert(job: Job<EmailJobPayload>, task: AlertTask, log: t
   // The email is out. If saving that fails, log it but don't throw: a retry would
   // send the same email again (and later report a delivery failure that didn't happen).
   try {
-    await recordAlert(taskId, { status: 'SENT', recipient: to, sentAt: new Date(), attempts: attempt, lastError: null, messageId });
+    await prisma.taskAlert.upsert({
+      where: { taskId },
+      create: { taskId, status: 'SENT', recipient: to, sentAt: new Date(), attempts: attempt, messageId, notifiedUserIds: [task.assignedUser.id] },
+      update: { status: 'SENT', recipient: to, sentAt: new Date(), attempts: attempt, lastError: null, messageId, notifiedUserIds: { push: task.assignedUser.id } },
+    });
   } catch (err: unknown) {
     log.error({ err: err instanceof Error ? err.message : String(err), messageId, to }, 'Alert sent but its status could not be saved — not retrying');
   }

@@ -20,6 +20,12 @@ export interface Transition {
   kind: 'forward' | 'back' | 'cancel';
   needsReason: boolean;
   permission: Permission;
+  /**
+   * Also limited to the CR's assignee or reporter, or an approver (cr.decide): moving
+   * back to Assess voids the CAB approval, so not just anyone who can edit.
+   * (Until the Roles page exists.)
+   */
+  ownersOnly?: boolean;
 }
 
 const TRANSITIONS: Record<CrStatus, Transition[]> = {
@@ -30,7 +36,7 @@ const TRANSITIONS: Record<CrStatus, Transition[]> = {
   ASSESS: [{ to: 'CANCELLED', label: 'Withdraw', kind: 'cancel', needsReason: true, permission: 'cr.close' }],
   SCHEDULED: [
     { to: 'IMPLEMENT', label: 'Start implementation', kind: 'forward', needsReason: false, permission: 'cr.edit' },
-    { to: 'ASSESS', label: 'Bug found - back to assess', kind: 'back', needsReason: true, permission: 'cr.edit' },
+    { to: 'ASSESS', label: 'Bug found - back to assess', kind: 'back', needsReason: true, permission: 'cr.edit', ownersOnly: true },
     { to: 'CANCELLED', label: 'Cancel', kind: 'cancel', needsReason: true, permission: 'cr.close' },
   ],
   IMPLEMENT: [

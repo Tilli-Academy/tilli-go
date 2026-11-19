@@ -3,6 +3,7 @@ import { useTaskData } from "../../hooks/useTaskData";
 import { useNavigate } from "react-router-dom";
 import { ProjectContext } from "../../App";
 import "./dashboard.css";
+import { DEFAULT_TIME_ZONE } from "../../utils/zoneTime";
 import ProjectSummary from "./ProjectSummary";
 import KpiCard from "./KpiCard";
 import StatusDonut from "./StatusDonut";
@@ -37,6 +38,7 @@ export default function Dashboard() {
     Acknowledged: 0,
     Completed: 0,
     Blocked: 0,
+    "N/A": 0,
   };
   tasks.forEach((t) => {
     if (t.status in counts) counts[t.status]++;
@@ -57,6 +59,9 @@ export default function Dashboard() {
   const project =
     (projects || []).find((p) => p.id === dataProjectId) || tasks[0]?.project || null;
   if (!loading) hasRendered.current = true;
+  // Times are shown in the project's zone, like the emails and the Timeline.
+  const timeZone: string =
+    (project && "timeZone" in project && typeof project.timeZone === "string" ? project.timeZone : null) ?? DEFAULT_TIME_ZONE;
 
   return (
     <div
@@ -65,7 +70,7 @@ export default function Dashboard() {
       aria-busy={refreshing || undefined}
     >
       <div className="dfd-inner">
-        <ProjectSummary project={project} tasks={tasks} counts={counts} />
+        <ProjectSummary project={project} tasks={tasks} counts={counts} timeZone={timeZone} />
 
         <section className="dfd-kpis" aria-label="Tasks by status">
           {(Object.entries(counts) as [TaskStatus, number][]).map(([status, count], index) => (
@@ -82,7 +87,7 @@ export default function Dashboard() {
 
         <div className="dfd-lower">
           <StatusDonut counts={counts} total={tasks.length} />
-          <RecentTasksTable tasks={recentTasks} />
+          <RecentTasksTable tasks={recentTasks} timeZone={timeZone} />
         </div>
       </div>
     </div>

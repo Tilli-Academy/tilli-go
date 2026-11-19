@@ -9,7 +9,11 @@ export const TASK_STATUSES: TaskStatus[] = [
   'Acknowledged',
   'Completed',
   'Blocked',
+  'N/A',
 ];
+
+/** Completed and N/A tasks are done: they can't be edited any more. */
+export const isLockedStatus = (status: string | undefined | null) => status === 'Completed' || status === 'N/A';
 
 export const SYSTEMS = [
   'FOL',
@@ -24,6 +28,7 @@ export const STATUS_CARD_COLORS: Record<TaskStatus, string> = {
   Acknowledged: 'bg-purple-100 text-purple-800 border-purple-300',
   Completed: 'bg-emerald-100 text-emerald-800 border-emerald-300',
   Blocked: 'bg-red-100 text-red-800 border-red-300',
+  'N/A': 'bg-slate-100 text-slate-600 border-slate-300',
 };
 
 // Status → hex colors (used in AG Grid cell renderers)
@@ -33,4 +38,5 @@ export const STATUS_BADGE_COLORS: Record<TaskStatus, StatusColors> = {
   Acknowledged: { bg: '#ede9fe', text: '#6d28d9' },
   Completed: { bg: '#d1fae5', text: '#065f46' },
   Blocked: { bg: '#fee2e2', text: '#991b1b' },
+  'N/A': { bg: '#f1f5f9', text: '#475569' },
 };

@@ -7,6 +7,8 @@ export const createTaskSchema = z.object({
   description: z.string().max(5000).optional(),
   assignedTeam: z.string().max(100).optional(),
   assignedUserId: z.string().uuid().optional().nullable(),
+  /** Optional tag: the change request (same project) this task is for */
+  changeRequestId: z.string().uuid().optional().nullable(),
   plannedStartTime: z.coerce.date().optional().nullable(),
   plannedEndTime: z.coerce.date().optional().nullable(),
   notes: z.string().max(5000).optional(),
@@ -20,6 +22,8 @@ export const updateTaskSchema = z.object({
   description: z.string().max(5000).optional().nullable(),
   assignedTeam: z.string().max(100).optional().nullable(),
   assignedUserId: z.string().uuid().optional().nullable(),
+  /** Optional tag: the change request (same project) this task is for */
+  changeRequestId: z.string().uuid().optional().nullable(),
   plannedStartTime: z.coerce.date().optional().nullable(),
   plannedEndTime: z.coerce.date().optional().nullable(),
   notes: z.string().max(5000).optional().nullable(),

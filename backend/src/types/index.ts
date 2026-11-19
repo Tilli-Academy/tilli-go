@@ -5,6 +5,9 @@ export {
   ALLOWED_TRANSITIONS,
   STATUS_REQUIRES_DEPS_MET,
   TASK_INCLUDE,
+  DONE_STATUSES,
+  LOCKED_STATUSES,
+  isDone,
 } from './task';
 
 export type {

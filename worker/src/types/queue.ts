@@ -14,7 +14,9 @@ export interface TaskJobPayload {
 /** Payload enqueued to email-queue by the task processor */
 export interface EmailJobPayload {
   taskId: string;
-  type?: 'triggered' | 'completion' | 'no_owner';
+  type?: 'triggered' | 'completion' | 'no_owner' | 'no_owner_reminder';
+  /** Start alert: the owner it is for (one alert per task per owner). */
+  ownerId?: string | null;
 }
 
 // ── Processor results ────────────────────────────────────────────────────────

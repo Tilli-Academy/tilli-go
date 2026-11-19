@@ -23,14 +23,15 @@ Leaving **Assess** is a CAB decision (approver only, `cr.decide`):
 |---|---|
 | Each move needs a permission (submit/implement/review: `cr.edit`; close/cancel/withdraw: `cr.close`) | `workflow.ts` |
 | Back moves (bug found, rollback) need a reason; going back to Assess clears the approval | `service.ts` |
+| "Bug found - back to Assess" only by the CR's assignee, its reporter or an approver (until the Roles page) | `workflow.ts`, `service.ts` |
 | Deployment date is locked once approved (send the CR back to change it) | `service.ts` |
 | Implement needs a plan (if the CR needs a cutover): a project with at least one task | `service.ts` |
-| Review needs every task in the project's plan Completed | `service.ts` |
+| Review needs the CR's own tasks done (tasks tagged with the CR in the grid), or, if none are tagged, every task in the project's plan. Done = Completed or N/A | `service.ts` |
 | Open CRs sharing a product on the same go-live day = date conflict warning | `service.ts` |
 
 ## Fields
 Title, description, **products** (several), change type, release type, team, priority, risk and impact
-(Low / Medium / High), customer, labels, **deployment date**, **code freeze date**, **date presented** (CAB),
+(Low / Medium / High), customer, labels, **deployment date and time** (typed and shown in the project's zone; same-day conflicts use that zone's calendar day), **code freeze date**, **date presented** (CAB),
 **downtime (hours)**, due date, assignee, reporter, project. Set automatically: decision, Date Approved,
 Approved By. Plus a **supporting-documents checklist** (each item links to an attachment of the CR or a URL)
 and **linked change requests** (shown on both).
@@ -90,8 +91,8 @@ docker compose exec api npm run db:seed:cr:built    # the same, inside the runni
 Logins (password `Demo@12345`): `priya@example.com` (developer, role user), `vikram@example.com` / `anita@example.com` (approvers, role admin).
 
 ## Not done yet
-- Attachments are stored on a Docker volume; next step is SharePoint via Microsoft Graph (same as the Quality System).
-- Dropdown values in `options.ts` are placeholders until the exact Jira values are confirmed.
+- Attachments are stored on a Docker volume; next step is SharePoint via Microsoft Graph.
+- Backup owner per task, and making the no-owner reminder interval an Admin setting (follow-up PR).
 
 # Cutover planning rules + Timeline
 
@@ -102,13 +103,16 @@ From the cutover tracker discussion: Excel forced a grid; the web app can model 
 | Tasks linked by a dependency | run one by one - never a clash |
 | Tasks with no dependency in the same time frame | run in **parallel** - allowed only with **different people** (same person = rejected with 409; team text is not compared) |
 | Duration 0:00:00 | a **checkpoint** (e.g. Go / No-Go) - drawn as ◆ |
-| No end time | **N/A / no estimate** - allowed |
+| No end time | **no estimate** - allowed |
+| Status **N/A** | not needed in this cutover: counts as done for every task that depends on it (API, scheduler, worker and acknowledge checks) and is locked like Completed. Can be set until the task is started |
 | 24h or more (e.g. "get management approval") | **long-running / waiting** work - allowed, and does not block its owner |
 | End before start | rejected (400) |
 
 - Enforced in the backend (`backend/src/modules/cutover/rules.ts`) on task create/update, but **only when time, owner or dependencies change**, so the scheduler/worker's status updates are never blocked. Completed tasks are ignored.
 - The Tasks grid shows the error as a toast and reverts the edit; a read-only **Duration** column shows `0:00 checkpoint`, `45 min`, `2 d`, `1 wk`, `N/A`.
-- **Timeline** page (`/timeline`, also from a CR's cutover card): one lane per owner, parallel work side by side, zoom to the go-live day, click a task to see what it waits for / blocks / runs in parallel with, and any existing clashes highlighted. API: `GET /api/cutover/:projectId/timeline`.
+- **Times** in the Tasks grid, Dashboard, Timeline, emails and confirm pages are in the project's zone; column headers name it (e.g. `Planned Start (CT)`) and times typed in the grid are read in it, whatever the browser's zone.
+- **Task → CR tag** (optional `changeRequestId`, same project only): the grid's *Change request* column. A CR with tagged tasks only waits for those at Review, so an emergency change isn't blocked by a whole release.
+- **Timeline** page (`/timeline`, also from a CR's cutover card): one lane per owner or per system (switch), parallel work side by side, zoom to the go-live day, click a task to see what it waits for / blocks / runs in parallel with, and any existing clashes highlighted. API: `GET /api/cutover/:projectId/timeline`.
 - Two different people from the same team can work in parallel (reviewer decision).
 
 # Start-time alerts
@@ -119,19 +123,21 @@ When a task's **planned start arrives** and **everything before it is Completed*
 | Case | What happens | Alert status |
 |---|---|---|
 | Owner has a company address | Email from the Tilli-go mailbox, reply-to Release Management, times in the project's timezone and UTC, earlier steps listed, **Acknowledge & start** button | `SENT` → `ACKNOWLEDGED` |
-| No owner set | The task **does not start**: it stays Pending (on hold) and Release Management is emailed once. It starts on the next scheduler run after someone is assigned. The API also refuses to move a task with no owner to Triggered/Acknowledged. | `NO_OWNER` |
+| No owner set | The task **does not start**: it stays Pending (on hold) and Release Management is emailed, plus **one reminder 15 min later** if still nobody is assigned (no reminder once someone is). It starts on the next scheduler run after someone is assigned. The API also refuses to move a task with no owner to Triggered/Acknowledged. | `NO_OWNER` |
+| Owner changed after the alert went out | If the task is ready (Triggered) and alerts are on, the **new owner is emailed**. One alert per task per owner: nobody gets the same alert twice (`task_alerts.notified_user_ids`) | `SENT` |
 | Owner address outside `ALERT_ALLOWED_DOMAINS` | Not sent — Release Management is emailed | `BLOCKED_DOMAIN` |
 | Send fails | BullMQ retries (5 attempts); after the last one Release Management is told | `RETRYING` → `FAILED` |
 | Due, but an earlier step isn't done | Task goes `Blocked`; alert goes out as soon as it is released | — |
 
 - **Per-project switch** (`projects.start_alerts_enabled`). New projects start **Off**, so planning and dry runs never email anyone. The migration sets existing projects to On, so today's behaviour does not change. Completion emails follow the same switch. Changing it needs `cutover.manage`.
-- **One alert per task** (`task_alerts`, unique per task), every step written to the task's audit log.
+- **One alert per task per owner** (`task_alerts`), every step written to the task's audit log.
 - **One click to confirm**: the email link opens `/#/acknowledge`, which only *reads* (`GET /api/acknowledge/preview`). Nothing changes until the owner clicks (`POST /api/acknowledge`), so email link scanners can't acknowledge by accident. The link is signed for that task and owner and expires 12 h after the planned end. A plain `GET /api/acknowledge` is read-only too. After the task is reassigned, the previous owner's link is refused (403).
+- **Completion link**: same pattern. `/#/complete` reads (`GET /api/complete/preview`), and only the click completes (`POST /api/complete`). The link names the current owner and expires 12 h after the planned end; links for anyone else, or without an owner, are refused.
 - **Where to see it**: Timeline page → *Start-time alerts* panel (switch, counts, per-task alert status, alert history, refreshes every 10 s); task panel on the Timeline; *Start-time alert* column in the Tasks grid.
 - API: `GET/PATCH /api/alerts/projects/:projectId`. Code: `worker/src/services/alertEmail.ts`, `worker/src/processors/emailProcessor.ts`, `backend/src/modules/alerts/`.
 - **Timezone per project** (`projects.time_zone`, IANA name, default `America/Chicago`). The email, the acknowledge page and the Timeline show times in that zone with UTC alongside. Set it on create (`timeZone`) or with `PATCH /api/projects/:id`.
 - Settings (worker only — it is the one that sends): `ALERT_ALLOWED_DOMAINS` (default `EMAIL_DOMAIN`), `ALERT_RELEASE_MANAGER_EMAIL`, `ALERT_REPLY_TO` (default `release-management@EMAIL_DOMAIN`), `EMAIL_FROM_ADDRESS` (default `noreply@EMAIL_DOMAIN`; with Microsoft 365 the sender is `MICROSOFT_MAIL_FROM`). The worker publishes the values it really uses to Redis and the alerts panel shows those, so the UI always matches the real sender.
-- Not in this release (mockup "planned enhancement" / "later"): reminder + lead escalation after 10 min, "due but waiting" warning email, Microsoft 365 / Teams delivery.
+- Not in this release: lead escalation, "due but waiting" warning email, Teams messages.
 
 ## Live demo
 - `DEMO_TOOLS=true` shows **▶ Start live rehearsal** on the alerts panel (release managers only). It rebuilds project `LIVE` timed from *now*: within ~2 minutes one owner is emailed, one task has no owner, one owner is outside the company, and one waits on `LIVE-1` — mark `LIVE-1` Completed to release it. **↻ Check now** runs the scheduler immediately instead of waiting for the next minute.

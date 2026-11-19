@@ -11,7 +11,9 @@ interface DependencyCheckResult {
   blockingTasks: BlockingTask[];
 }
 
-const TaskStatus = { Completed: 'Completed' } as const;
+// A dependency is met when the task it waits for is Completed, or N/A (not needed in
+// this cutover). Same rule as backend/src/types/task.ts DONE_STATUSES.
+export const DONE_STATUSES: ReadonlySet<string> = new Set(['Completed', 'N/A']);
 
 export async function canTaskExecute(taskId: string): Promise<DependencyCheckResult> {
   const task = await prisma.task.findUnique({
@@ -44,7 +46,7 @@ export async function canTaskExecute(taskId: string): Promise<DependencyCheckRes
   }
 
   const blockingTasks = dependencies
-    .filter((dep) => dep.dependsOn.status !== TaskStatus.Completed)
+    .filter((dep) => !DONE_STATUSES.has(dep.dependsOn.status))
     .map((dep) => ({
       id: dep.dependsOn.id,
       taskName: dep.dependsOn.taskName,

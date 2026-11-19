@@ -2,7 +2,7 @@ import { useCallback, useContext, useEffect, useRef, useState } from 'react';
 import { ProjectContext } from '../../App';
 import api, { getErrorMessage } from '../../services/api';
 import { alertLabel, hhmm, type TaskAlertInfo } from './alertMeta';
-import { zoneLabel } from '../../utils/zoneTime';
+import { zoneName } from '../../utils/zoneTime';
 
 interface AlertTaskRow {
   id: string;
@@ -42,6 +42,7 @@ function describe(e: AlertEvent): { text: string; tone: string } {
     case 'EMAIL_SENT':
       return { text: `Alert email sent ${(e.newValue ?? '').replace(/^to=/, 'to ').replace(/\sattempt=\d+/, '')}`, tone: 'bg-sky-500' };
     case 'ALERT_NO_OWNER': return { text: 'Due but no owner — on hold, release manager emailed', tone: 'bg-rose-500' };
+    case 'ALERT_NO_OWNER_REMINDER': return { text: 'Still no owner — release manager reminded', tone: 'bg-rose-500' };
     case 'ALERT_BLOCKED_DOMAIN': return { text: `${(e.newValue ?? '').replace(/^not sent/, 'Not sent')}`, tone: 'bg-rose-500' };
     case 'ALERT_RETRY': return { text: `Email failed, retrying: ${e.newValue ?? ''}`, tone: 'bg-amber-500' };
     case 'ALERT_FAILED': return { text: `Email failed for good: ${e.newValue ?? ''}`, tone: 'bg-rose-600' };
@@ -180,7 +181,7 @@ export default function AlertsPanel({ projectId, timeZone, onChanged }: { projec
 
         <div className="space-y-3 min-w-0">
           <p className="text-xs text-text-muted" title="New projects start Off · only company addresses are emailed · one alert per task · opening the email link changes nothing until the owner clicks">
-            {data.settings ? `From ${data.settings.fromAddress} · replies to ${data.settings.replyTo}` : 'Mail worker not running'} · {zoneLabel(timeZone)} + UTC
+            {data.settings ? `From ${data.settings.fromAddress} · replies to ${data.settings.replyTo}` : 'Mail worker not running'} · {zoneName(timeZone)} + UTC
             {data.settings && <> · only {data.settings.allowedDomains.map((d) => `@${d}`).join(', ')}</>}
           </p>
           <div className="rounded-lg border border-border">

@@ -52,6 +52,7 @@ export function escapeHtml(str: string): string {
 
 interface TaskForEmail {
   id: string;
+  plannedEndTime: Date | null;
   taskName: string;
   system: string;
   description: string | null;
@@ -61,8 +62,13 @@ interface TaskForEmail {
 
 // ── Completion email ────────────────────────────────────────────────────────
 
-export function buildCompleteUrl(taskId: string): string {
-  const token = signAckToken(taskId);
+const TWELVE_HOURS = 12 * 60 * 60 * 1000;
+
+/** Signed for this task AND its current owner; expires 12 h after the planned end. */
+export function buildCompleteUrl(taskId: string, ownerId: string, plannedEndTime: Date | null): string {
+  const end = plannedEndTime?.getTime();
+  const exp = end ? Math.max(end + TWELVE_HOURS, Date.now() + TWELVE_HOURS) : undefined;
+  const token = signAckToken(taskId, { uid: ownerId, exp });
   return `${config.frontendUrl}/#/complete?task_id=${taskId}&token=${token}`;
 }
 
@@ -75,7 +81,8 @@ function buildCompletionEmailHtml(task: TaskForEmail, completeUrl: string): stri
       ? `<p><strong>Description:</strong> ${escapeHtml(task.description)}</p>`
       : '',
     '<br/>',
-    `<p><a href="${completeUrl}" style="padding:10px 20px;background:#16a34a;color:#fff;text-decoration:none;border-radius:4px;">Complete Task</a></p>`,
+    `<p><a href="${completeUrl}" style="padding:10px 20px;background:#16a34a;color:#fff;text-decoration:none;border-radius:4px;">Mark as completed</a></p>`,
+    `<p style="color:#666;font-size:12px;">Link expires 12 hours after the planned end.</p>`,
     `<p style="color:#666;font-size:12px;">Or copy this link: ${completeUrl}</p>`,
   ].join('\n');
 }
@@ -124,8 +131,9 @@ export async function sendMailInternal(
 
 /** `to` is decided by the caller (the task owner's company address); never guessed here. */
 export async function sendCompletionEmail(task: TaskForEmail, to: string): Promise<EmailResult> {
+  if (!task.assignedUser) throw new Error('Completion email needs an owner');
   const subject = `[Tilli-go] Task ready for completion: ${task.taskName}`;
-  const completeUrl = buildCompleteUrl(task.id);
+  const completeUrl = buildCompleteUrl(task.id, task.assignedUser.id, task.plannedEndTime);
   const html = buildCompletionEmailHtml(task, completeUrl);
   return sendMailInternal(to, subject, html, 'COMPLETION EMAIL SENT');
 }

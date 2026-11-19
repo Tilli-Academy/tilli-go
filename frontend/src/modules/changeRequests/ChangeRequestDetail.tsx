@@ -4,12 +4,13 @@ import { getErrorMessage } from '../../services/api';
 import { toast } from '../../components/ui/Toast';
 import { crApi } from './api';
 import ProjectCard from './ProjectCard';
+import { dayIn } from '../../utils/zoneTime';
 import ChangeFields, { formFrom, payload, type CrForm } from './ChangeFields';
 import { DecisionPanel, DocumentsCard, LinkedCard } from './CabPanels';
 import { useLists } from '../../hooks/useLists';
 import axios from 'axios';
 import type { ChangeDetail, Transition } from './types';
-import { Avatar, Level, PriorityTag, STATUS_FLOW, STATUS_META, StatusPill, ValueTag, btnGhost, btnPrimary, card, crNo, fmtDate, fmtDateTime, inputCls, relDays } from './ui';
+import { Avatar, Level, PriorityTag, STATUS_FLOW, STATUS_META, StatusPill, ValueTag, btnGhost, btnPrimary, card, crNo, crZone, fmtDate, fmtDateTime, fmtGoLive, inputCls, relDays } from './ui';
 
 export default function ChangeRequestDetail() {
   const { id = '' } = useParams();
@@ -47,13 +48,13 @@ export default function ChangeRequestDetail() {
     if (!cr) return;
     if (users.length === 0) setUsers((await crApi.meta()).data.users);
     setEditErrors({});
-    setEdit(formFrom(cr));
+    setEdit(formFrom(cr, crZone(cr)));
   };
   const saveEdit = async () => {
     if (!edit) return;
     setBusy(true);
     try {
-      await crApi.update(id, payload(edit));
+      await crApi.update(id, payload(edit, crZone(cr!)));
       toast('Saved', 'success');
       setEdit(null);
       load();
@@ -153,7 +154,7 @@ export default function ChangeRequestDetail() {
           <div className="flex gap-3 rounded-card border border-rose-200 bg-rose-50 p-4 text-sm text-rose-800" role="alert">
             <span aria-hidden="true">⚠</span>
             <div>
-              <p className="font-semibold">Date conflict: another change for the same product goes live on {fmtDate(cr.plannedGoLive)}</p>
+              <p className="font-semibold">Date conflict: another change for the same product goes live on {dayIn(cr.plannedGoLive, crZone(cr))}</p>
               {cr.conflicts.map((x) => <Link key={x.id} to={`/change-requests/${x.id}`} className="block hover:underline">{crNo(x.number)} · {x.title} ({x.assignee.name})</Link>)}
             </div>
           </div>
@@ -163,7 +164,7 @@ export default function ChangeRequestDetail() {
           <div className="space-y-5 lg:col-span-2 min-w-0">
             {edit && lists ? (
               <section className={`${card} p-5`} aria-label="Edit change request">
-                <ChangeFields f={edit} set={(k, v) => setEdit((p) => (p ? { ...p, [k]: v } : p))} lists={lists} users={users}
+                <ChangeFields f={edit} set={(k, v) => setEdit((p) => (p ? { ...p, [k]: v } : p))} lists={lists} users={users} timeZone={crZone(cr)}
                   errors={editErrors} goLiveLocked={!['NEW', 'ASSESS'].includes(cr.status)} />
                 <div className="mt-4 flex justify-end gap-2">
                   <button type="button" onClick={() => setEdit(null)} className={btnGhost}>Cancel</button>
@@ -230,7 +231,7 @@ export default function ChangeRequestDetail() {
                 ['Team', cr.team ? <ValueTag key="tm" value={cr.team} /> : '-'],
                 ['Products', <span key="pr" className="flex flex-wrap justify-end gap-1">{cr.products.map((p) => <ValueTag key={p.id} value={p} />)}</span>],
                 ['Customer', cr.customer ?? 'Internal'],
-                ['Deployment date', `${fmtDate(cr.plannedGoLive)} (${relDays(cr.plannedGoLive)})`],
+                ['Deployment date', `${fmtGoLive(cr.plannedGoLive, crZone(cr))} (${relDays(cr.plannedGoLive, crZone(cr))})`],
                 ['Code freeze', fmtDate(cr.codeFreezeDate)],
                 ['Date presented', fmtDate(cr.datePresented)],
                 ['Downtime', cr.downtimeHours === null ? '-' : `${cr.downtimeHours} h`],

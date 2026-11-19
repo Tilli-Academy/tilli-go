@@ -109,6 +109,26 @@ export async function addNoOwnerJob(task: TaskJobInput): Promise<void> {
   logger.info({ jobId, taskId: task.id }, 'No-owner job enqueued');
 }
 
+function taskJob(name: string, jobId: string, task: TaskJobInput) {
+  return taskQueue.add(
+    name,
+    { taskId: task.id, taskName: task.taskName, system: task.system, assignedTeam: task.assignedTeam, assignedUserId: task.assignedUserId },
+    { jobId, attempts: 3, backoff: { type: 'exponential', delay: 5000 }, removeOnComplete: { age: 86400 }, removeOnFail: { age: 7 * 86400 } },
+  );
+}
+
+/** Still no owner 15 min after the first notice: one reminder (one job per task). */
+export async function addNoOwnerReminderJob(task: TaskJobInput): Promise<void> {
+  await taskJob('process-no-owner-reminder', `task-no-owner-reminder-${task.id}`, task);
+  logger.info({ taskId: task.id }, 'No-owner reminder job enqueued');
+}
+
+/** A ready task got a new owner: the worker emails them (one job per task per owner). */
+export async function addReassignedJob(task: TaskJobInput): Promise<void> {
+  await taskJob('process-reassigned', `task-reassigned-${task.id}-${task.assignedUserId}`, task);
+  logger.info({ taskId: task.id, ownerId: task.assignedUserId }, 'Reassigned-task job enqueued');
+}
+
 export async function close(): Promise<void> {
   await taskQueue.close();
   await emailQueue.close();

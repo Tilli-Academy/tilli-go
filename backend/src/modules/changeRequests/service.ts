@@ -8,6 +8,8 @@ import { assertPermission, hasPermission, permissionsFor, rolesWith } from '../a
 import { assertValues } from '../lists/service';
 import type { CreateChangeDTO, UpdateChangeDTO } from './validators';
 import * as storage from './storage';
+import { isDone } from '../../types';
+import { DEFAULT_TIME_ZONE, dayKeyIn } from '../../utils/zoneTime';
 
 const PERSON = { select: { id: true, name: true, email: true, role: true } } as const;
 const VALUE = { select: { id: true, label: true, color: true, active: true } } as const;
@@ -51,13 +53,33 @@ async function cutoverStats(projectIds: string[]) {
   for (const r of rows) {
     const s = (out[r.projectId] ??= { total: 0, completed: 0, blocked: 0 });
     s.total += r._count;
-    if (r.status === 'Completed') s.completed += r._count;
+    if (isDone(r.status)) s.completed += r._count; // Completed or N/A
     if (r.status === 'Blocked') s.blocked += r._count;
   }
   return out;
 }
 
-const dayKey = (d: Date) => d.toISOString().slice(0, 10);
+/** The go-live calendar day, in the CR's project zone (default US Central). */
+const goLiveDay = (d: Date, tz: string | null | undefined) => dayKeyIn(d, tz ?? DEFAULT_TIME_ZONE);
+const DAY_MS = 86_400_000;
+
+/** Progress of the tasks tagged with this CR; null when it has none. */
+async function ownTaskStats(crId: string) {
+  const rows = await prisma.task.groupBy({ by: ['status'], where: { changeRequestId: crId }, _count: true });
+  if (rows.length === 0) return null;
+  const s = { total: 0, completed: 0, blocked: 0 };
+  for (const r of rows) {
+    s.total += r._count;
+    if (isDone(r.status)) s.completed += r._count;
+    if (r.status === 'Blocked') s.blocked += r._count;
+  }
+  return s;
+}
+
+/** Assignee, reporter, or an approver (until the Roles page exists). */
+function isOwnerOrApprover(cr: { assigneeId: string; reporterId: string }, user: JwtPayload, permissions: string[]): boolean {
+  return cr.assigneeId === user.id || cr.reporterId === user.id || permissions.includes('cr.decide');
+}
 
 export async function list(filters: ListFilters, user: JwtPayload) {
   const where: Prisma.ChangeRequestWhereInput = {};
@@ -74,7 +96,7 @@ export async function list(filters: ListFilters, user: JwtPayload) {
   }
   const rows = await prisma.changeRequest.findMany({
     where,
-    include: { ...LIST_INCLUDE, assignee: PERSON, project: { select: { id: true, code: true } } },
+    include: { ...LIST_INCLUDE, assignee: PERSON, project: { select: { id: true, code: true, timeZone: true } } },
     orderBy: { plannedGoLive: 'asc' },
     take: 500,
   });
@@ -83,17 +105,20 @@ export async function list(filters: ListFilters, user: JwtPayload) {
   // Computed across ALL open CRs, not just the filtered page.
   const open = await prisma.changeRequest.findMany({
     where: { status: { in: OPEN_STATUSES } },
-    select: { id: true, plannedGoLive: true, products: { select: { productId: true } } },
+    select: { id: true, plannedGoLive: true, products: { select: { productId: true } }, project: { select: { timeZone: true } } },
   });
   const tally = new Map<string, number>();
-  for (const c of open) for (const p of c.products) tally.set(`${p.productId}|${dayKey(c.plannedGoLive)}`, (tally.get(`${p.productId}|${dayKey(c.plannedGoLive)}`) ?? 0) + 1);
+  for (const c of open) {
+    const day = goLiveDay(c.plannedGoLive, c.project?.timeZone);
+    for (const p of c.products) tally.set(`${p.productId}|${day}`, (tally.get(`${p.productId}|${day}`) ?? 0) + 1);
+  }
   const openIds = new Set(open.map((c) => c.id));
 
   const stats = await cutoverStats(rows.flatMap((r) => (r.projectId ? [r.projectId] : [])));
   const data = rows
     .map((r) => ({
       ...shape(r),
-      hasConflict: openIds.has(r.id) && r.products.some((p) => (tally.get(`${p.product.id}|${dayKey(r.plannedGoLive)}`) ?? 0) > 1),
+      hasConflict: openIds.has(r.id) && r.products.some((p) => (tally.get(`${p.product.id}|${goLiveDay(r.plannedGoLive, r.project?.timeZone)}`) ?? 0) > 1),
       cutover: r.projectId ? stats[r.projectId] ?? { total: 0, completed: 0, blocked: 0 } : null,
     }))
     .filter((r) => !filters.conflictsOnly || r.hasConflict);
@@ -102,22 +127,30 @@ export async function list(filters: ListFilters, user: JwtPayload) {
   return { data, counts: Object.fromEntries(counts.map((c) => [c.status, c._count])) };
 }
 
-/** Open CRs going live the same (UTC) day that share at least one of these products. */
-export async function findConflicts(productIds: string[], date: Date, excludeId?: string) {
+/**
+ * Open CRs that share at least one of these products and go live on the same calendar
+ * day. `day` is "YYYY-MM-DD"; each CR's go-live is read in its own project's zone.
+ */
+export async function findConflicts(productIds: string[], day: string, excludeId?: string) {
   if (productIds.length === 0) return [];
-  const start = new Date(date);
-  start.setUTCHours(0, 0, 0, 0);
-  const end = new Date(start.getTime() + 86400000);
-  return prisma.changeRequest.findMany({
+  const noon = new Date(`${day}T12:00:00.000Z`);
+  const rows = await prisma.changeRequest.findMany({
     where: {
       products: { some: { productId: { in: productIds } } },
-      plannedGoLive: { gte: start, lt: end },
+      // a generous window; the exact day is checked below in each CR's zone
+      plannedGoLive: { gte: new Date(noon.getTime() - 2 * DAY_MS), lt: new Date(noon.getTime() + 2 * DAY_MS) },
       status: { in: OPEN_STATUSES },
       ...(excludeId ? { id: { not: excludeId } } : {}),
     },
-    select: { id: true, number: true, title: true, status: true, assignee: { select: { name: true } } },
+    select: {
+      id: true, number: true, title: true, status: true, plannedGoLive: true,
+      assignee: { select: { name: true } }, project: { select: { timeZone: true } },
+    },
     orderBy: { number: 'asc' },
   });
+  return rows
+    .filter((c) => goLiveDay(c.plannedGoLive, c.project?.timeZone) === day)
+    .map(({ plannedGoLive: _g, project: _p, ...c }) => c);
 }
 
 export async function getById(id: string, user: JwtPayload) {
@@ -143,10 +176,11 @@ export async function getById(id: string, user: JwtPayload) {
     },
   });
   if (!cr) throw new AppError('Change request not found', 404);
-  const [conflicts, stats, permissions] = await Promise.all([
-    FINISHED.includes(cr.status) ? [] : findConflicts(cr.products.map((p) => p.product.id), cr.plannedGoLive, cr.id),
+  const [conflicts, stats, permissions, own] = await Promise.all([
+    FINISHED.includes(cr.status) ? [] : findConflicts(cr.products.map((p) => p.product.id), goLiveDay(cr.plannedGoLive, cr.project?.timeZone), cr.id),
     cutoverStats(cr.projectId ? [cr.projectId] : []),
     permissionsFor(user),
+    ownTaskStats(cr.id),
   ]);
   const { linksFrom, linksTo, ...rest } = cr;
   const can = (p: string) => (permissions as string[]).includes(p);
@@ -155,7 +189,9 @@ export async function getById(id: string, user: JwtPayload) {
     linked: [...linksFrom.map((l) => l.to), ...linksTo.map((l) => l.from)].sort((a, b) => a.number - b.number),
     conflicts,
     cutover: cr.projectId ? stats[cr.projectId] ?? { total: 0, completed: 0, blocked: 0 } : null,
-    transitions: transitionsFor(cr.status).map((t) => ({ ...t, allowed: can(t.permission) })),
+    /** Tasks tagged with this CR (null when none are tagged: the whole project counts). */
+    ownTasks: own,
+    transitions: transitionsFor(cr.status).map((t) => ({ ...t, allowed: can(t.permission) && (!t.ownersOnly || isOwnerOrApprover(cr, user, permissions)) })),
     canDecide: cr.status === 'ASSESS' && can('cr.decide'),
     permissions,
   };
@@ -253,6 +289,9 @@ export async function transition(id: string, to: string, reason: string | undefi
   const t = findTransition(cr.status, to);
   if (!t) throw new AppError(`Cannot move from ${cr.status} to ${to}`, 409);
   await assertPermission(user, t.permission);
+  if (t.ownersOnly && !isOwnerOrApprover(cr, user, await permissionsFor(user))) {
+    throw new AppError("Only the change's assignee, its reporter or an approver can send it back to Assess", 403);
+  }
   if (t.needsReason && (!reason || reason.length < 5)) throw new AppError('Please give a short reason (5+ characters)', 400);
 
   // Gates tied to the project's cutover plan.
@@ -262,10 +301,12 @@ export async function transition(id: string, to: string, reason: string | undefi
     const tasks = await prisma.task.count({ where: { projectId: cr.projectId } });
     if (tasks === 0) throw new AppError("The project's cutover plan has no tasks yet", 409);
   }
+  // Review waits for the CR's own (tagged) tasks if it has any, else the whole project's plan.
   if (to === 'REVIEW' && cr.projectId) {
-    const s = (await cutoverStats([cr.projectId]))[cr.projectId];
+    const own = await ownTaskStats(cr.id);
+    const s = own ?? (await cutoverStats([cr.projectId]))[cr.projectId];
     if (s && s.completed < s.total) {
-      throw new AppError(`Project cutover not finished: ${s.completed}/${s.total} tasks completed`, 409);
+      throw new AppError(`${own ? "This change's tasks" : 'Project cutover'} not finished: ${s.completed}/${s.total} done`, 409);
     }
   }
 
@@ -325,7 +366,7 @@ export async function decide(id: string, decision: Decision, reason: string | un
         fromStatus: cr.status,
         toStatus: rule.to === cr.status ? null : rule.to,
         actorId: user.id,
-        message: [label, decision === 'DEFERRED' ? `to CAB on ${dayKey(datePresented!)}` : null, reason].filter(Boolean).join(' - '),
+        message: [label, decision === 'DEFERRED' ? `to CAB on ${datePresented!.toISOString().slice(0, 10)}` : null, reason].filter(Boolean).join(' - '),
       },
     }),
   ]);
@@ -384,6 +425,8 @@ export async function setProject(id: string, choice: ProjectChoice, user: JwtPay
     if ((project?.id ?? null) === cr.projectId) return { changed: false, project };
 
     await tx.changeRequest.update({ where: { id }, data: { projectId: project?.id ?? null } });
+    // Tasks tagged with this CR stay in the old project's plan: they lose the tag.
+    await tx.task.updateMany({ where: { changeRequestId: id, ...(project ? { projectId: { not: project.id } } : {}) }, data: { changeRequestId: null } });
     const message = project
       ? `${'create' in choice ? 'created and linked' : cr.projectId ? 'moved to' : 'linked to'} project ${project.code}${cr.project ? ` (was ${cr.project.code})` : ''}`
       : `removed from project ${cr.project?.code ?? ''}`;

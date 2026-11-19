@@ -27,6 +27,8 @@ export const TaskStatus = {
   Acknowledged: 'Acknowledged',
   Completed: 'Completed',
   Blocked: 'Blocked',
+  /** Not needed in this cutover. Counts as done for dependencies and is locked like Completed. */
+  NotApplicable: 'N/A',
 } as const;
 
 export type TaskStatus = (typeof TaskStatus)[keyof typeof TaskStatus];
@@ -37,19 +39,28 @@ export const VALID_STATUSES = [
   TaskStatus.Acknowledged,
   TaskStatus.Completed,
   TaskStatus.Blocked,
+  TaskStatus.NotApplicable,
 ] as const;
+
+/** A dependency on a task in one of these statuses is met. */
+export const DONE_STATUSES: ReadonlySet<string> = new Set<string>([TaskStatus.Completed, TaskStatus.NotApplicable]);
+/** Tasks in these statuses can't be changed any more. */
+export const LOCKED_STATUSES: ReadonlySet<string> = DONE_STATUSES;
+export const isDone = (status: string): boolean => DONE_STATUSES.has(status);
 
 /**
  * Allowed status transitions.
  * Key = current status, Value = set of statuses it can transition to.
- * Completed has an empty set — it's an absorbing state.
+ * Completed and N/A have an empty set — they're absorbing states.
+ * A task can be marked N/A until someone has started it.
  */
 export const ALLOWED_TRANSITIONS: Readonly<Record<TaskStatus, ReadonlySet<TaskStatus>>> = {
-  [TaskStatus.Pending]: new Set<TaskStatus>([TaskStatus.Triggered, TaskStatus.Blocked]),
-  [TaskStatus.Blocked]: new Set<TaskStatus>([TaskStatus.Pending]),
-  [TaskStatus.Triggered]: new Set<TaskStatus>([TaskStatus.Acknowledged]),
+  [TaskStatus.Pending]: new Set<TaskStatus>([TaskStatus.Triggered, TaskStatus.Blocked, TaskStatus.NotApplicable]),
+  [TaskStatus.Blocked]: new Set<TaskStatus>([TaskStatus.Pending, TaskStatus.NotApplicable]),
+  [TaskStatus.Triggered]: new Set<TaskStatus>([TaskStatus.Acknowledged, TaskStatus.NotApplicable]),
   [TaskStatus.Acknowledged]: new Set<TaskStatus>([TaskStatus.Completed]),
   [TaskStatus.Completed]: new Set<TaskStatus>(),
+  [TaskStatus.NotApplicable]: new Set<TaskStatus>(),
 };
 
 /**
@@ -70,6 +81,7 @@ export interface CreateTaskDTO {
   description?: string | null;
   assignedTeam?: string | null;
   assignedUserId?: string | null;
+  changeRequestId?: string | null;
   plannedStartTime?: Date | null;
   plannedEndTime?: Date | null;
   notes?: string | null;
@@ -87,6 +99,7 @@ export interface UpdateTaskDTO {
   description?: string | null;
   assignedTeam?: string | null;
   assignedUserId?: string | null;
+  changeRequestId?: string | null;
   plannedStartTime?: Date | null;
   plannedEndTime?: Date | null;
   notes?: string | null;
@@ -154,6 +167,9 @@ export interface TaskResponse {
 export const TASK_INCLUDE = {
   dependsOn: {
     select: { dependsOnTaskId: true },
+  },
+  changeRequest: {
+    select: { id: true, number: true, title: true },
   },
   assignedUser: {
     select: { id: true, name: true, email: true },

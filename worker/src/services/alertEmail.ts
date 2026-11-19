@@ -116,18 +116,20 @@ ${notes}
 /** Sent to the release manager when an alert can't reach the owner. */
 export function buildManagerNotice(
   task: AlertTask,
-  reason: 'no_owner' | 'blocked_domain' | 'failed',
+  reason: 'no_owner' | 'no_owner_reminder' | 'blocked_domain' | 'failed',
   detail?: string,
 ): { subject: string; html: string } {
   const code = taskCode(task);
   const tz = task.project.timeZone;
   const subjects = {
     no_owner: `[Tilli-go] ${code} is ready but has no owner`,
+    no_owner_reminder: `[Tilli-go] Reminder: ${code} still has no owner`,
     blocked_domain: `[Tilli-go] ${code} is ready — owner's address is outside the company`,
     failed: `[Tilli-go] Alert for ${code} could not be delivered`,
   };
   const explain = {
     no_owner: 'Due to start and everything before it is done, but nobody is assigned. It is on hold until someone is.',
+    no_owner_reminder: 'Still nobody assigned. The task stays on hold until someone is. This is the only reminder.',
     blocked_domain: `The owner's address (${escapeHtml(detail ?? '')}) is not a company address, so Tilli-go did not email it. Please contact the owner directly.`,
     failed: `Tilli-go tried several times and could not deliver the alert${detail ? ` (${escapeHtml(detail)})` : ''}. Please contact the owner directly.`,
   };

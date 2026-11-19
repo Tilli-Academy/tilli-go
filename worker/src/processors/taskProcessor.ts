@@ -12,10 +12,14 @@ import type { TaskJobPayload, TaskProcessorResult } from '../types';
  *   - process-task:       Pending → Triggered + trigger email
  *   - process-completion: Acknowledged → completion email (no status change here)
  *   - process-no-owner:   a due task has no owner → it stays Pending, Release Management is told
+ *   - process-no-owner-reminder: still no owner 15 min later → one reminder
+ *   - process-reassigned: a ready (Triggered) task got a new owner → that owner is emailed
  */
 const processor = async (job: Job<TaskJobPayload>): Promise<TaskProcessorResult> => {
   if (job.name === 'process-completion') return processCompletion(job);
   if (job.name === 'process-no-owner') return processNoOwner(job);
+  if (job.name === 'process-no-owner-reminder') return processNoOwnerReminder(job);
+  if (job.name === 'process-reassigned') return processReassigned(job);
   return processTrigger(job);
 };
 
@@ -95,7 +99,7 @@ async function processTrigger(job: Job<TaskJobPayload>): Promise<TaskProcessorRe
   // ── 6. Enqueue email ────────────────────────────────────────────────
   // Only taskId is passed — the email processor fetches the task,
   // signs the ack token, and sends via nodemailer.
-  await addEmailJob({ taskId, type: 'triggered' });
+  await addEmailJob({ taskId, type: 'triggered', ownerId: task.assignedUserId });
 
   return { status: 'triggered', taskId };
 }
@@ -150,6 +154,40 @@ async function processNoOwner(job: Job<TaskJobPayload>): Promise<TaskProcessorRe
   if (!task.project.startAlertsEnabled) return { status: 'held', reason: 'alerts_off' };
   await addEmailJob({ taskId, type: 'no_owner' });
   return { status: 'held', taskId };
+}
+
+/** process-no-owner-reminder: one reminder while the task is still held with no owner. */
+async function processNoOwnerReminder(job: Job<TaskJobPayload>): Promise<TaskProcessorResult> {
+  const { taskId } = job.data;
+  const task = await prisma.task.findUnique({
+    where: { id: taskId },
+    select: { status: true, assignedUserId: true, project: { select: { startAlertsEnabled: true } } },
+  });
+  // Stop as soon as an owner is assigned
+  if (!task || task.status !== 'Pending' || task.assignedUserId) return { status: 'skipped', reason: 'owner_assigned' };
+  if (!task.project.startAlertsEnabled) return { status: 'held', reason: 'alerts_off' };
+  await addEmailJob({ taskId, type: 'no_owner_reminder' });
+  return { status: 'held', taskId };
+}
+
+/**
+ * process-reassigned: the task was already ready to start (Triggered) and got a new
+ * owner. Email them, if alerts are on. The email processor keeps the rule of one
+ * alert per task per owner.
+ */
+async function processReassigned(job: Job<TaskJobPayload>): Promise<TaskProcessorResult> {
+  const { taskId, assignedUserId } = job.data;
+  const log = logger.child({ jobId: job.id, taskId });
+  const task = await prisma.task.findUnique({
+    where: { id: taskId },
+    select: { status: true, assignedUserId: true, project: { select: { startAlertsEnabled: true } } },
+  });
+  if (!task || task.status !== 'Triggered') return { status: 'skipped', reason: 'not_ready' };
+  if (!task.assignedUserId || task.assignedUserId !== assignedUserId) return { status: 'skipped', reason: 'owner_changed_again' };
+  if (!task.project.startAlertsEnabled) return { status: 'skipped', reason: 'alerts_off' };
+  await addEmailJob({ taskId, type: 'triggered', ownerId: task.assignedUserId });
+  log.info({ ownerId: task.assignedUserId }, 'New owner of a ready task — start alert queued');
+  return { status: 'triggered', taskId };
 }
 
 export = processor;

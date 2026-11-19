@@ -4,11 +4,13 @@ import logger from '../config/logger';
 import { AppError } from '../utils/errors';
 import { assertNoOwnerClash } from '../modules/cutover/rules';
 import { assertDependenciesMet, validateDependencies, writeDependencies } from './dependencyService';
+import { addReassignedJob } from './queueService';
 import {
   TASK_INCLUDE,
   ALLOWED_TRANSITIONS,
   STATUS_REQUIRES_DEPS_MET,
   TaskStatus,
+  LOCKED_STATUSES,
 } from '../types';
 import type {
   CreateTaskDTO,
@@ -112,6 +114,7 @@ async function create(data: CreateTaskDTO, opts: CreateTaskOptions = {}): Promis
 
   // Check dependencies before anything is saved (a bad list used to leave a half-made task).
   const deps = dependencies ? await validateDependencies(null, taskData.projectId, dependencies) : [];
+  await assertChangeRequestInProject(taskData.changeRequestId, taskData.projectId);
 
   // Cutover planning rules: end >= start, and parallel tasks need different owners.
   await assertNoOwnerClash(
@@ -168,8 +171,8 @@ async function update(id: string, data: UpdateTaskDTO, opts: UpdateTaskOptions =
     throw new AppError('Task not found', 404);
   }
 
-  if (existing.status === TaskStatus.Completed) {
-    throw new AppError('Cannot modify a completed task', 400);
+  if (LOCKED_STATUSES.has(existing.status)) {
+    throw new AppError(existing.status === TaskStatus.Completed ? 'Cannot modify a completed task' : 'Cannot modify a task marked N/A', 400);
   }
 
   const { dependencies, ...taskFields } = data;
@@ -214,6 +217,7 @@ async function update(id: string, data: UpdateTaskDTO, opts: UpdateTaskOptions =
 
   // Check dependencies before the clash check trusts them, and before anything is saved.
   const deps = dependencies !== undefined ? await validateDependencies(id, existing.projectId, dependencies) : undefined;
+  await assertChangeRequestInProject(taskFields.changeRequestId, existing.projectId);
 
   // Cutover planning rules - only when the schedule, owner or dependencies change,
   // so status-only updates from the scheduler/worker are never blocked.
@@ -286,7 +290,26 @@ async function update(id: string, data: UpdateTaskDTO, opts: UpdateTaskOptions =
     return tx.task.findUnique({ where: { id }, include: TASK_INCLUDE });
   });
 
+  // A task that is already ready to start (Triggered) got a new owner: the worker
+  // emails them if the project's alerts are on (one alert per task per owner).
+  const ownerChanged = taskFields.assignedUserId !== undefined && taskFields.assignedUserId !== existing.assignedUserId;
+  if (ownerChanged && updatedTask?.assignedUserId && updatedTask.status === TaskStatus.Triggered) {
+    const project = await prisma.project.findUnique({ where: { id: existing.projectId }, select: { startAlertsEnabled: true } });
+    if (project?.startAlertsEnabled) {
+      await addReassignedJob(updatedTask).catch((err: unknown) =>
+        logger.error({ taskId: id, err: err instanceof Error ? err.message : String(err) }, 'Could not queue the new owner alert'),
+      );
+    }
+  }
+
   return formatTask(updatedTask as TaskWithIncludes);
+}
+
+/** A task can be tagged with a change request of its own project (or untagged with null). */
+async function assertChangeRequestInProject(changeRequestId: string | null | undefined, projectId: string): Promise<void> {
+  if (!changeRequestId) return;
+  const cr = await prisma.changeRequest.findUnique({ where: { id: changeRequestId }, select: { projectId: true } });
+  if (!cr || cr.projectId !== projectId) throw new AppError('The change request must belong to the same project as the task', 400);
 }
 
 // ── Delete ──────────────────────────────────────────────────────────────────

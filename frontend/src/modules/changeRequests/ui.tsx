@@ -1,4 +1,5 @@
 import type { CrStatus, ListValue } from './types';
+import { DEFAULT_TIME_ZONE, dateTimeIn, dayKeyIn, zoneLabel } from '../../utils/zoneTime';
 
 export const STATUS_FLOW: CrStatus[] = ['NEW', 'ASSESS', 'SCHEDULED', 'IMPLEMENT', 'REVIEW', 'CLOSED'];
 
@@ -54,11 +55,16 @@ export function Level({ label, value, risk }: { label: string; value: string | n
 export const crNo = (n: number) => `CR-${n}`;
 export const fmtDate = (d: string | null) =>
   d ? new Date(d).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', timeZone: 'UTC' }) : '-';
+/** The CR's zone: its project's, else the default (US Central). */
+export const crZone = (cr: { project: { timeZone?: string } | null }) => cr.project?.timeZone ?? DEFAULT_TIME_ZONE;
+/** Deployment date and time in the CR's zone: "21 Nov 2026, 21:00 CST" */
+export const fmtGoLive = (d: string, timeZone: string) => `${dateTimeIn(d, timeZone)} ${zoneLabel(timeZone, d)}`;
 export const fmtDateTime = (d: string) => new Date(d).toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
-export function relDays(d: string) {
-  const a = new Date(d); a.setUTCHours(0, 0, 0, 0);
-  const b = new Date(); b.setUTCHours(0, 0, 0, 0);
-  const n = Math.round((a.getTime() - b.getTime()) / 86400000);
+/** "in 3 days" — calendar days in the given zone (date-only fields use UTC). */
+export function relDays(d: string, timeZone = 'UTC') {
+  const a = Date.parse(dayKeyIn(d, timeZone));
+  const b = Date.parse(dayKeyIn(Date.now(), timeZone));
+  const n = Math.round((a - b) / 86400000);
   if (n === 0) return 'today';
   if (n === 1) return 'tomorrow';
   if (n === -1) return 'yesterday';

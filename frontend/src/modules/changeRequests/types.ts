@@ -84,6 +84,8 @@ export interface ChangeDetail extends ChangeRequest {
   decidedBy: Person | null;
   documents: { documentTypeId: string; attachmentId: string | null; url: string | null; attachment: { id: string; fileName: string } | null }[];
   linked: { id: string; number: number; title: string; status: CrStatus }[];
+  /** Progress of the tasks tagged with this CR (null when none are tagged). */
+  ownTasks: CutoverStats | null;
   transitions: Transition[];
   canDecide: boolean;
   permissions: string[];

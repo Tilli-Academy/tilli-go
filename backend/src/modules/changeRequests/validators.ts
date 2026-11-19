@@ -7,6 +7,11 @@ const dateOnly = z
   .regex(/^\d{4}-\d{2}-\d{2}$/, 'use YYYY-MM-DD')
   .transform((s) => new Date(`${s}T00:00:00.000Z`));
 const id = z.string().uuid();
+/** Deployment date and time: an ISO timestamp with offset (the UI converts from the project's zone). */
+const dateTime = z
+  .string()
+  .datetime({ offset: true, message: 'use a date and time' })
+  .transform((s) => new Date(s));
 const level = z.enum(LEVEL_KEYS);
 
 // Fields a CR can be created with; editing uses the same rules, all optional.
@@ -23,7 +28,7 @@ const fields = {
   impact: level.nullable(),
   customer: z.string().trim().max(100).nullable().transform((v) => v || null),
   labels: z.array(z.string().trim().min(1).max(30)).max(10),
-  plannedGoLive: dateOnly,
+  plannedGoLive: dateTime,
   dueDate: dateOnly.nullable(),
   datePresented: dateOnly.nullable(),
   codeFreezeDate: dateOnly.nullable(),

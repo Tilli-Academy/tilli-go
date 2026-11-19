@@ -8,7 +8,20 @@ import bcrypt from 'bcryptjs';
 const prisma = new PrismaClient();
 const DAY = 86400000;
 const day = (n: number) => { const d = new Date(); d.setUTCHours(0, 0, 0, 0); return new Date(d.getTime() + n * DAY); };
-const at = (n: number, h: number, m = 0) => new Date(day(n).getTime() + (h * 60 + m) * 60000);
+// Times are wall-clock times in the demo projects' zone (US Central), like a real cutover.
+const ZONE = 'America/Chicago';
+function zoneOffsetMs(d: Date): number {
+  const p = Object.fromEntries(
+    new Intl.DateTimeFormat('en-US', { timeZone: ZONE, hourCycle: 'h23', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
+      .formatToParts(d).map((x) => [x.type, x.value]),
+  );
+  return Date.UTC(+p.year!, +p.month! - 1, +p.day!, +p.hour!, +p.minute!) - Math.floor(d.getTime() / 60000) * 60000;
+}
+/** Day n (from today) at h:m US Central time. */
+const at = (n: number, h: number, m = 0) => {
+  const wall = day(n).getTime() + (h * 60 + m) * 60000;
+  return new Date(wall - zoneOffsetMs(new Date(wall - zoneOffsetMs(new Date(wall)))));
+};
 const ago = (days: number) => new Date(Date.now() - days * DAY);
 
 async function main(): Promise<void> {
@@ -41,7 +54,7 @@ async function main(): Promise<void> {
     return (await prisma.listValue.create({ data: { list, label, sortOrder: (last._max.sortOrder ?? 0) + 1 } })).id;
   }
   const RELEASE: Record<string, string> = { 'Major release': 'Major', 'Minor release': 'Minor', Hotfix: 'Minor', Configuration: 'Minor' };
-  const TEAM: Record<string, string> = { Nudge: 'Integrations', 'Tilli-go': 'Platform', 'Quality System': 'QA', 'Internal Tools': 'Platform' };
+  const TEAM: Record<string, string> = { Messaging: 'Integrations', Platform: 'Platform', 'Test Manager': 'QA', 'Internal Tools': 'Platform' };
   const CAB_DAY = 2; // next CAB meeting, days from today
 
   async function cr(d: {
@@ -62,7 +75,7 @@ async function main(): Promise<void> {
         teamId: await value('team', TEAM[d.product] ?? 'Platform'),
         products: { create: [{ productId: await value('product', d.product) }] },
         impact: d.impact.toUpperCase(), risk: d.risk.toUpperCase(), customer: d.customer,
-        labels: d.labels ?? [], plannedGoLive: day(d.goLive), needsCutover: d.needsCutover ?? true,
+        labels: d.labels ?? [], plannedGoLive: at(d.goLive, 21), needsCutover: d.needsCutover ?? true,
         datePresented: status === 'ASSESS' ? day(CAB_DAY) : approval ? ago(approval.daysAgo + 1) : null,
         codeFreezeDate: d.goLive > 2 ? day(d.goLive - 2) : null,
         downtimeHours: d.needsCutover === false ? null : 0.5,
@@ -133,9 +146,9 @@ async function main(): Promise<void> {
   }
 
   const c1 = await cr({
-    title: 'Nudge - WhatsApp channel for customer onboarding', product: 'Nudge', releaseType: 'Major release', priority: 'High',
-    impact: 'High', risk: 'Medium', customer: 'Bluewave Finance', labels: ['whatsapp', 'onboarding'], goLive: -10,
-    description: 'Add WhatsApp as a delivery channel for onboarding nudges, including template approval and opt-in handling.',
+    title: 'Messaging - WhatsApp channel for customer onboarding', product: 'Messaging', releaseType: 'Major release', priority: 'High',
+    impact: 'High', risk: 'Medium', customer: 'Contoso Finance', labels: ['whatsapp', 'onboarding'], goLive: -10,
+    description: 'Add WhatsApp as a delivery channel for onboarding messages, including template approval and opt-in handling.',
     assigneeId: priya.id, reporterId: anita.id, createdDaysAgo: 30,
     path: [
       { to: 'ASSESS', by: priya.id, daysAgo: 28 }, { to: 'SCHEDULED', by: vikram.id, daysAgo: 25 },
@@ -147,14 +160,14 @@ async function main(): Promise<void> {
   const relOct = await project('REL-OCT', 'October release');
   await cutover(c1, relOct, -10, priya.id, 12, [
     ['Comms', 'Notify customer of go-live window', 'BA', rahul.id, 'Completed'],
-    ['Nudge', 'Deploy Nudge v4.1', 'Dev', priya.id, 'Completed'],
-    ['QA', 'Send 3 test WhatsApp nudges', 'QA', arjun.id, 'Completed'],
+    ['Messaging', 'Deploy Messaging v4.1', 'Dev', priya.id, 'Completed'],
+    ['QA', 'Send 3 test WhatsApp messages', 'QA', arjun.id, 'Completed'],
   ]);
 
   const c2 = await cr({
-    title: 'Nudge - API integration for Acme Retail', product: 'Nudge', releaseType: 'Minor release', priority: 'Critical',
-    impact: 'High', risk: 'Medium', customer: 'Acme Retail', labels: ['api', 'customer-go-live'], goLive: 0,
-    description: 'Acme Retail sends customer events through their REST API. We enter their API details into Nudge call settings, test end-to-end, then go live.',
+    title: 'Messaging - API integration for Northwind Retail', product: 'Messaging', releaseType: 'Minor release', priority: 'Critical',
+    impact: 'High', risk: 'Medium', customer: 'Northwind Retail', labels: ['api', 'customer-go-live'], goLive: 0,
+    description: 'Northwind Retail sends customer events through their REST API. We enter their API details into Messaging call settings, test end-to-end, then go live.',
     assigneeId: priya.id, reporterId: anita.id, createdDaysAgo: 12,
     path: [{ to: 'ASSESS', by: priya.id, daysAgo: 11 }, { to: 'SCHEDULED', by: anita.id, daysAgo: 7 }, { to: 'IMPLEMENT', by: priya.id, daysAgo: 0.1 }],
   });
@@ -164,23 +177,23 @@ async function main(): Promise<void> {
   const relNov = await project('REL-NOV', 'November release');
   await plan(c2, relNov, priya.id, 6, [
     { system: 'Mgmt', name: 'Management go-live approval', team: 'Management', owner: anita.id, start: at(-3, 9), end: at(0, 8), status: 'Completed' },
-    { system: 'Comms', name: 'Send go-live notice to Acme and internal teams', team: 'BA', owner: rahul.id, start: at(0, 9), end: at(0, 9, 30), status: 'Completed', deps: [1] },
-    { system: 'DB', name: 'Back up Nudge production database', team: 'DBA', owner: sneha.id, start: at(0, 9), end: at(0, 9, 45), status: 'Completed', deps: [1] },
-    { system: 'Nudge', name: 'Enter Acme API credentials in Nudge call settings', team: 'Dev', owner: priya.id, start: at(0, 9), end: at(0, 9, 20), status: 'Completed', deps: [1] },
-    { system: 'Nudge', name: 'Deploy Nudge release 4.2 to production', team: 'Dev', owner: priya.id, start: at(0, 9, 45), end: at(0, 10, 30), status: 'Acknowledged', deps: [3, 4] },
-    { system: 'QA', name: 'Smoke test: trigger 5 nudges via Acme API', team: 'QA', owner: arjun.id, start: at(0, 10, 30), end: at(0, 11), status: 'Pending', deps: [5] },
+    { system: 'Comms', name: 'Send go-live notice to Northwind and internal teams', team: 'BA', owner: rahul.id, start: at(0, 9), end: at(0, 9, 30), status: 'Completed', deps: [1] },
+    { system: 'DB', name: 'Back up Messaging production database', team: 'DBA', owner: sneha.id, start: at(0, 9), end: at(0, 9, 45), status: 'Completed', deps: [1] },
+    { system: 'Messaging', name: 'Enter Northwind API credentials in Messaging call settings', team: 'Dev', owner: priya.id, start: at(0, 9), end: at(0, 9, 20), status: 'Completed', deps: [1] },
+    { system: 'Messaging', name: 'Deploy Messaging release 4.2 to production', team: 'Dev', owner: priya.id, start: at(0, 9, 45), end: at(0, 10, 30), status: 'Acknowledged', deps: [3, 4] },
+    { system: 'QA', name: 'Smoke test: send 5 messages via Northwind API', team: 'QA', owner: arjun.id, start: at(0, 10, 30), end: at(0, 11), status: 'Pending', deps: [5] },
     { system: 'Mgmt', name: 'Go / No-Go decision', team: 'Management', owner: vikram.id, start: at(0, 11), end: at(0, 11), status: 'Pending', deps: [6] },
-    { system: 'Comms', name: 'Confirm go-live with Acme and close the window', team: 'BA', owner: rahul.id, start: at(0, 11), end: at(0, 11, 15), status: 'Pending', deps: [7] },
+    { system: 'Comms', name: 'Confirm go-live with Northwind and close the window', team: 'BA', owner: rahul.id, start: at(0, 11), end: at(0, 11, 15), status: 'Pending', deps: [7] },
     { system: 'Support', name: 'Hypercare monitoring (until stable)', team: 'Support', owner: sneha.id, start: at(0, 11, 15), end: null, status: 'Pending', deps: [7] },
   ]);
-  await comment(c2.id, rahul.id, 'Acme confirmed their sandbox API credentials work. Production keys shared via the vault.', 6);
+  await comment(c2.id, rahul.id, 'Northwind confirmed their sandbox API credentials work. Production keys shared via the vault.', 6);
   await comment(c2.id, arjun.id, 'UAT passed on the quality environment - 42/42 test cases green.', 2);
-  for (const [doc, url] of [['Release Notes', 'https://example.com/release-notes/nudge-4-2'], ['Rollback Plan', 'https://example.com/runbooks/nudge-rollback']] as const) {
+  for (const [doc, url] of [['Release Notes', 'https://example.com/release-notes/messaging-4-2'], ['Rollback Plan', 'https://example.com/runbooks/messaging-rollback']] as const) {
     await prisma.changeDocument.create({ data: { changeRequestId: c2.id, documentTypeId: await value('supporting_document', doc), url, addedById: priya.id } });
   }
 
   const c3 = await cr({
-    title: 'Tilli-go - move email reminders to delayed jobs', product: 'Tilli-go', releaseType: 'Minor release', priority: 'Medium',
+    title: 'Platform - move email reminders to delayed jobs', product: 'Platform', releaseType: 'Minor release', priority: 'Medium',
     impact: 'Medium', risk: 'Low', labels: ['email', 'worker'], goLive: 2,
     description: 'Replace polling with delayed BullMQ jobs so cutover owners get their email exactly on time.',
     assigneeId: sneha.id, reporterId: anita.id, createdDaysAgo: 9,
@@ -188,36 +201,36 @@ async function main(): Promise<void> {
   });
   await link(c3, relNov, sneha.id, 3);
   await cr({
-    title: 'Nudge - campaign analytics dashboard v2', product: 'Nudge', releaseType: 'Major release', priority: 'High',
+    title: 'Messaging - campaign analytics dashboard v2', product: 'Messaging', releaseType: 'Major release', priority: 'High',
     impact: 'Medium', risk: 'Medium', labels: ['analytics'], goLive: 3,
     description: 'New charts for delivery and click-through rates per campaign.', assigneeId: priya.id, reporterId: anita.id, createdDaysAgo: 5,
     path: [{ to: 'ASSESS', by: priya.id, daysAgo: 4 }],
   });
   const c5 = await cr({
-    title: 'Nudge - fix SMS opt-out not saved', product: 'Nudge', changeType: 'Emergency', releaseType: 'Hotfix', priority: 'Critical',
+    title: 'Messaging - fix SMS opt-out not saved', product: 'Messaging', changeType: 'Emergency', releaseType: 'Hotfix', priority: 'Critical',
     impact: 'High', risk: 'Low', labels: ['bug', 'sms'], goLive: 3, needsCutover: false,
     description: 'Opt-out replies from some carriers are ignored. Hotfix in the inbound SMS parser.', assigneeId: rahul.id, reporterId: anita.id, createdDaysAgo: 1,
   });
   await comment(c5.id, anita.id, 'Heads-up: this clashes with the analytics release on the same day. Can we ship the hotfix a day earlier?', 0.5);
   await cr({
-    title: 'Quality System - SharePoint folder per project', product: 'Quality System', releaseType: 'Minor release', priority: 'Medium',
+    title: 'Test Manager - SharePoint folder per project', product: 'Test Manager', releaseType: 'Minor release', priority: 'Medium',
     impact: 'Low', risk: 'Low', labels: ['sharepoint'], goLive: 6,
     description: 'Create one SharePoint folder per test project automatically via Graph API.', assigneeId: arjun.id, reporterId: vikram.id, createdDaysAgo: 4,
     path: [{ to: 'ASSESS', by: arjun.id, daysAgo: 3 }],
   });
   await cr({
-    title: 'Change Request module pilot with the Nudge team', product: 'Internal Tools', releaseType: 'Major release', priority: 'High',
+    title: 'Change Request module pilot with the Messaging team', product: 'Internal Tools', releaseType: 'Major release', priority: 'High',
     impact: 'Medium', risk: 'Low', labels: ['pilot'], goLive: 12,
-    description: 'Run Nudge change requests through Tilli-go for two weeks alongside Jira, then retire the Jira board.', assigneeId: rahul.id, reporterId: vikram.id, createdDaysAgo: 0.2,
+    description: 'Run Messaging change requests through Tilli-go for two weeks alongside Jira, then retire the Jira board.', assigneeId: rahul.id, reporterId: vikram.id, createdDaysAgo: 0.2,
   });
   await cr({
-    title: 'Nudge - retire legacy SMS gateway', product: 'Nudge', releaseType: 'Configuration', priority: 'Low',
+    title: 'Messaging - retire legacy SMS gateway', product: 'Messaging', releaseType: 'Configuration', priority: 'Low',
     impact: 'Medium', risk: 'High', labels: ['cleanup'], goLive: 5,
     description: 'Switch off the old SMS provider.', assigneeId: priya.id, reporterId: anita.id, createdDaysAgo: 20,
     path: [{ to: 'ASSESS', by: priya.id, daysAgo: 19 }, { to: 'CANCELLED', by: anita.id, daysAgo: 15, msg: 'Two customers still depend on it - revisit next quarter.' }],
   });
   await cr({
-    title: 'Quality System - export test report to PDF', product: 'Quality System', releaseType: 'Minor release', priority: 'Medium',
+    title: 'Test Manager - export test report to PDF', product: 'Test Manager', releaseType: 'Minor release', priority: 'Medium',
     impact: 'Low', risk: 'Low', labels: ['reports'], goLive: 9, needsCutover: false,
     description: "One-click PDF export of a project's test results for customer sign-off.", assigneeId: arjun.id, reporterId: vikram.id, createdDaysAgo: 6,
     path: [{ to: 'ASSESS', by: arjun.id, daysAgo: 5 }, { to: 'SCHEDULED', by: vikram.id, daysAgo: 2 }],

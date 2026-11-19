@@ -16,6 +16,7 @@
  */
 import prisma from '../../config/prisma';
 import { AppError } from '../../utils/errors';
+import { isDone } from '../../types';
 
 export const LONG_RUNNING_MS = 24 * 60 * 60 * 1000;
 
@@ -54,7 +55,7 @@ function sameOwner(a: PlanTask, b: PlanTask): boolean {
 /** Only short, scheduled, unfinished tasks occupy their owner. */
 function occupiesOwner(t: PlanTask): boolean {
   const k = durationKind(t);
-  return t.status !== 'Completed' && (k === 'timed' || k === 'milestone' || k === 'no-estimate');
+  return !isDone(t.status) && (k === 'timed' || k === 'milestone' || k === 'no-estimate');
 }
 
 function overlaps(a: PlanTask, b: PlanTask): boolean {

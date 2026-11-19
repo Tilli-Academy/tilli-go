@@ -181,3 +181,10 @@ export const SettingsIcon = (p: IconProps) => (
     <circle cx="8" cy="17" r="2" />
   </Svg>
 );
+
+export const MinusCircleIcon = (p: IconProps) => (
+  <Svg {...p}>
+    <circle cx="12" cy="12" r="8.25" />
+    <path d="M8.5 12h7" />
+  </Svg>
+);

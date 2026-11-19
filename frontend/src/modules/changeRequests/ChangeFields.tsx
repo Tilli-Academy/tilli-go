@@ -1,5 +1,6 @@
 import type { ChangeDetail, Lists, ListValue, Person } from './types';
 import { inputCls, labelCls } from './ui';
+import { fromZonedInput, toZonedInput, zoneName } from '../../utils/zoneTime';
 
 // The change-request fields, shared by "New change request" and "Edit".
 // Dropdown values come from the managed lists (Admin → Lists).
@@ -33,7 +34,7 @@ export const emptyForm = (): CrForm => ({
 
 const day = (s: string | null) => (s ? s.slice(0, 10) : '');
 
-export const formFrom = (cr: ChangeDetail): CrForm => ({
+export const formFrom = (cr: ChangeDetail, timeZone: string): CrForm => ({
   title: cr.title,
   description: cr.description,
   changeTypeId: cr.changeType?.id ?? '',
@@ -45,7 +46,7 @@ export const formFrom = (cr: ChangeDetail): CrForm => ({
   impact: cr.impact ?? '',
   customer: cr.customer ?? '',
   labels: cr.labels.join(', '),
-  plannedGoLive: day(cr.plannedGoLive),
+  plannedGoLive: toZonedInput(cr.plannedGoLive, timeZone),
   dueDate: day(cr.dueDate),
   datePresented: day(cr.datePresented),
   codeFreezeDate: day(cr.codeFreezeDate),
@@ -54,8 +55,8 @@ export const formFrom = (cr: ChangeDetail): CrForm => ({
   assigneeId: cr.assignee.id,
 });
 
-/** Request body: empty optional fields become null. */
-export function payload(f: CrForm) {
+/** Request body: empty optional fields become null. The deployment time is read in `timeZone`. */
+export function payload(f: CrForm, timeZone: string) {
   const orNull = (s: string) => (s.trim() ? s.trim() : null);
   return {
     title: f.title,
@@ -69,7 +70,7 @@ export function payload(f: CrForm) {
     impact: f.impact || null,
     customer: orNull(f.customer),
     labels: f.labels.split(',').map((s) => s.trim()).filter(Boolean),
-    plannedGoLive: f.plannedGoLive || undefined,
+    plannedGoLive: f.plannedGoLive ? fromZonedInput(f.plannedGoLive, timeZone) ?? undefined : undefined,
     dueDate: f.dueDate || null,
     datePresented: f.datePresented || null,
     codeFreezeDate: f.codeFreezeDate || null,
@@ -113,7 +114,7 @@ function Levels({ label, value, risk, onChange, optional }: { label: string; val
   );
 }
 
-export default function ChangeFields({ f, set, lists, users, errors, goLiveLocked }: {
+export default function ChangeFields({ f, set, lists, users, errors, goLiveLocked, timeZone }: {
   f: CrForm;
   set: <K extends keyof CrForm>(k: K, v: CrForm[K]) => void;
   lists: Lists;
@@ -121,6 +122,8 @@ export default function ChangeFields({ f, set, lists, users, errors, goLiveLocke
   errors: Record<string, string>;
   /** After approval the go-live date only changes by sending the CR back. */
   goLiveLocked?: boolean;
+  /** Zone the deployment time is typed in (the project's). */
+  timeZone: string;
 }) {
   const Err = ({ k }: { k: string }) => (errors[k] ? <p className="mt-1 text-xs font-medium text-destructive">{errors[k]}</p> : null);
   const products = options(lists.product, f.productIds);
@@ -170,8 +173,8 @@ export default function ChangeFields({ f, set, lists, users, errors, goLiveLocke
 
       <div className="grid gap-4 sm:grid-cols-3">
         <div>
-          <label htmlFor="cr-golive" className={labelCls}>Deployment date</label>
-          <input id="cr-golive" type="date" value={f.plannedGoLive} disabled={goLiveLocked} title={goLiveLocked ? 'Locked once approved' : undefined}
+          <label htmlFor="cr-golive" className={labelCls} title={timeZone}>Deployment ({zoneName(timeZone)})</label>
+          <input id="cr-golive" type="datetime-local" value={f.plannedGoLive} disabled={goLiveLocked} title={goLiveLocked ? 'Locked once approved' : undefined}
             onChange={(e) => set('plannedGoLive', e.target.value)} className={inputCls} />
           <Err k="plannedGoLive" />
         </div>

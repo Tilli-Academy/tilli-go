@@ -92,6 +92,11 @@ export default function ProjectCard({ cr, onChanged }: { cr: ChangeDetail; onCha
             <span className="text-text-secondary">{cr.cutover.completed}/{cr.cutover.total} tasks · {pct}%</span>
           </div>
           <div className="h-2.5 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full bg-primary transition-all" style={{ width: `${pct}%` }} /></div>
+          {cr.ownTasks && (
+            <p className="mt-2 text-sm text-text-secondary" title="Tasks tagged with this change in the grid. Review waits only for these.">
+              This change's tasks: <b className="text-text-primary">{cr.ownTasks.completed}/{cr.ownTasks.total}</b> done
+            </p>
+          )}
           {cr.cutover.blocked > 0 && <p className="mt-2 text-xs font-semibold text-rose-600">{cr.cutover.blocked} task(s) blocked</p>}
           {cr.cutover.total === 0 && cr.needsCutover && <p className="mt-2 text-xs text-text-secondary">No tasks yet.</p>}
         </div>

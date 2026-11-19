@@ -101,7 +101,7 @@ export default function AcknowledgePage() {
               <div className="mt-4 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-xs text-emerald-900">
                 <p className="font-semibold mb-1">Earlier steps</p>
                 {task.earlierSteps.map((s) => (
-                  <p key={s.code}>{s.status === 'Completed' ? '✓' : '…'} {s.code} · {s.taskName} — {s.status}</p>
+                  <p key={s.code}>{s.status === 'Completed' || s.status === 'N/A' ? '✓' : '…'} {s.code} · {s.taskName} — {s.status}</p>
                 ))}
               </div>
             )}

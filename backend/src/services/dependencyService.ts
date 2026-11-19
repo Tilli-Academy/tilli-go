@@ -1,12 +1,12 @@
 import type { Prisma } from '@prisma/client';
 import prisma from '../config/prisma';
 import { AppError } from '../utils/errors';
-import { TaskStatus } from '../types';
+import { isDone } from '../types';
 import type { DependencyCheckResult, DependerTask } from '../types';
 
 // ── canTaskExecute ──────────────────────────────────────────────────────────
-// Core reusable function: checks whether ALL dependencies of a task
-// have status "Completed". Returns a structured result usable by
+// Core reusable function: checks whether ALL dependencies of a task are done
+// (Completed, or N/A = not needed in this cutover). Returns a structured result usable by
 // API middleware, service layer, scheduler, and worker.
 
 export async function canTaskExecute(taskId: string): Promise<DependencyCheckResult> {
@@ -40,7 +40,7 @@ export async function canTaskExecute(taskId: string): Promise<DependencyCheckRes
   }
 
   const blockingTasks = dependencies
-    .filter((dep) => dep.dependsOn.status !== TaskStatus.Completed)
+    .filter((dep) => !isDone(dep.dependsOn.status))
     .map((dep) => ({
       id: dep.dependsOn.id,
       taskName: dep.dependsOn.taskName,
@@ -54,7 +54,7 @@ export async function canTaskExecute(taskId: string): Promise<DependencyCheckRes
 }
 
 // ── assertDependenciesMet ───────────────────────────────────────────────────
-// Throws if any dependency is not Completed. Use as a guard in service /
+// Throws if any dependency is not done (Completed or N/A). Use as a guard in service /
 // worker code where you want a hard failure.
 
 export async function assertDependenciesMet(taskId: string): Promise<void> {
@@ -122,7 +122,7 @@ export async function canTasksExecuteBatch(
     }
 
     const blocking = deps.filter(
-      (d) => d.dependsOn.status !== TaskStatus.Completed,
+      (d) => !isDone(d.dependsOn.status),
     );
 
     results.set(id, {

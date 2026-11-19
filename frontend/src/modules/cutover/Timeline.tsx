@@ -1,5 +1,5 @@
 import { useContext, useEffect, useMemo, useState } from 'react';
-import { dayIn, dayKeyIn, startOfDayIn, timeIn, whenWithUtc, zoneLabel, zoneOffsetMs } from '../../utils/zoneTime';
+import { dayIn, dayKeyIn, startOfDayIn, timeIn, whenWithUtc, zoneName, zoneOffsetMs } from '../../utils/zoneTime';
 import { ProjectContext } from '../../App';
 import api, { getErrorMessage } from '../../services/api';
 import { durationKind, formatDuration, type DurationKind } from './duration';
@@ -32,6 +32,7 @@ const STATUS: Record<string, string> = {
   Acknowledged: 'bg-violet-100 text-violet-900 border-violet-300',
   Completed: 'bg-emerald-100 text-emerald-900 border-emerald-300',
   Blocked: 'bg-rose-100 text-rose-900 border-rose-300',
+  'N/A': 'bg-slate-100 text-slate-500 border-slate-300 line-through',
 };
 const STEPS = [15, 30, 60, 120, 180, 360, 720, 1440, 2880, 10080].map((m) => m * 60000);
 
@@ -51,6 +52,11 @@ export default function Timeline() {
   const [selected, setSelected] = useState<string | null>(null);
 
   const [reload, setReload] = useState(0);
+  // One lane per owner (who is busy when) or per system (how the call runs). Remembered per browser.
+  const [laneBy, setLaneBy] = useState<'owner' | 'system'>(() => {
+    try { return localStorage.getItem('timelineLanes') === 'system' ? 'system' : 'owner'; } catch { return 'owner'; }
+  });
+  const chooseLanes = (v: 'owner' | 'system') => { setLaneBy(v); try { localStorage.setItem('timelineLanes', v); } catch { /* ignore */ } };
 
   useEffect(() => {
     if (!selectedProjectId) return;
@@ -154,7 +160,8 @@ export default function Timeline() {
   for (const t of [...model.scheduled].sort((a, b) => ms(a.plannedStartTime!) - ms(b.plannedStartTime!))) {
     const [s, e] = visualSpan(t);
     if (e < from || s > to) continue;
-    lanes.set(owner(t), [...(lanes.get(owner(t)) ?? []), t]);
+    const lane = laneBy === 'system' ? t.system || 'No system' : owner(t);
+    lanes.set(lane, [...(lanes.get(lane) ?? []), t]);
   }
   const laneRows = [...lanes.entries()].map(([name, list]) => {
     // Stack by REAL times: a new row only when two tasks truly overlap.
@@ -179,7 +186,7 @@ export default function Timeline() {
       <div className="p-4 sm:p-6 space-y-5 max-w-[1400px] mx-auto">
         <div>
           <h2 className="text-xl font-semibold text-text-primary">Cutover timeline · {project?.code ?? data.project.code}</h2>
-          <p className="text-xs text-text-muted" title={tz}>Times in {zoneLabel(tz)} ({tz})</p>
+          <p className="text-xs text-text-muted" title={tz}>Times in {zoneName(tz)} ({tz})</p>
         </div>
 
         <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
@@ -208,6 +215,10 @@ export default function Timeline() {
         )}
 
         <div className="flex flex-wrap items-center gap-2">
+          <span className="text-xs font-semibold uppercase tracking-wide text-text-secondary mr-1">Lanes</span>
+          <Chip on={laneBy === 'owner'} onClick={() => chooseLanes('owner')}>Owner</Chip>
+          <Chip on={laneBy === 'system'} onClick={() => chooseLanes('system')}>System</Chip>
+          <span className="mx-1 h-5 w-px bg-border" aria-hidden="true" />
           <span className="text-xs font-semibold uppercase tracking-wide text-text-secondary mr-1">Zoom</span>
           <Chip on={view === 'all'} onClick={() => setRange('all')}>Whole plan</Chip>
           {[...model.days.entries()].sort().map(([d, n]) => (
@@ -236,7 +247,7 @@ export default function Timeline() {
                 <div key={name} className="flex border-b border-border last:border-b-0">
                   <div className="w-40 flex-shrink-0 px-3 py-2 text-sm font-medium text-text-primary border-r border-border bg-surface-hover/40">
                     {name}
-                    {rows.length > 1 && <span className="block text-[11px] font-normal text-sky-700">{rows.length} overlapping (multi-day / waiting work)</span>}
+                    {laneBy === 'owner' && rows.length > 1 && <span className="block text-[11px] font-normal text-sky-700">{rows.length} overlapping (multi-day / waiting work)</span>}
                   </div>
                   <div className="relative flex-1">
                     {ticks.map((t) => <span key={t} className="absolute inset-y-0 border-l border-dashed border-border/70" style={{ left: `${pct(t)}%` }} />)}
