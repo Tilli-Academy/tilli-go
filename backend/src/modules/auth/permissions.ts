@@ -27,19 +27,26 @@ interface HasRole {
   role: string;
 }
 
-const CACHE_MS = 30_000;
-let cache: { at: number; byRole: Map<string, Set<string>> } | null = null;
+/**
+ * Cached copy of role_permissions, tagged with the version it was read at. Every check
+ * reads the one-row permission_version table (a trigger bumps it on any change to
+ * role_permissions) and reloads when it differs, so a revoked permission stops working
+ * on the very next request, on every API instance.
+ */
+let cache: { version: bigint; byRole: Map<string, Set<string>> } | null = null;
 
 async function table(): Promise<Map<string, Set<string>>> {
-  if (cache && Date.now() - cache.at < CACHE_MS) return cache.byRole;
+  const row = await prisma.permissionVersion.findUnique({ where: { id: 1 }, select: { version: true } });
+  const version = row?.version ?? -1n;
+  if (cache && cache.version === version) return cache.byRole;
   const rows = await prisma.rolePermission.findMany();
   const byRole = new Map<string, Set<string>>();
   for (const r of rows) byRole.set(r.role, (byRole.get(r.role) ?? new Set()).add(r.permission));
-  cache = { at: Date.now(), byRole };
+  cache = { version, byRole };
   return byRole;
 }
 
-/** For tests and after editing role_permissions. */
+/** For tests. (Not needed after editing role_permissions: the version check handles that.) */
 export function clearPermissionCache(): void {
   cache = null;
 }

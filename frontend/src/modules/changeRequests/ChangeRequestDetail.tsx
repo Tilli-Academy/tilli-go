@@ -34,7 +34,12 @@ export default function ChangeRequestDetail() {
   const run = async (fn: () => Promise<unknown>, ok?: string) => {
     setBusy(true);
     try { await fn(); if (ok) toast(ok, 'success'); load(); return true; }
-    catch (e) { toast(getErrorMessage(e)); return false; }
+    catch (e) {
+      toast(getErrorMessage(e));
+      // 409: someone else changed this CR meanwhile - show its current state.
+      if (axios.isAxiosError(e) && e.response?.status === 409) load();
+      return false;
+    }
     finally { setBusy(false); }
   };
 

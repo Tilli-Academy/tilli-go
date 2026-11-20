@@ -1,6 +1,7 @@
 import * as crypto from 'crypto';
 import { test, expect } from '../fixtures/auth.fixture';
-import { API_URL, TEST_PASSWORD, uniqueEmail, uniqueName, uniqueProjectCode, uniqueProjectName } from '../helpers/constants';
+import { TEST_PASSWORD, uniqueEmail, uniqueName, uniqueProjectCode, uniqueProjectName } from '../helpers/constants';
+import { call, createChangeRequest, zip } from '../helpers/http';
 
 /**
  * API-level guards from the PR #7 code audit:
@@ -11,23 +12,6 @@ import { API_URL, TEST_PASSWORD, uniqueEmail, uniqueName, uniqueProjectCode, uni
  * The email-link tests sign their own links, so they need ACK_TOKEN_SECRET (the
  * same value the API uses); without it they are skipped.
  */
-type Res = { status: number; data: any };
-async function call(method: string, path: string, token?: string, body?: unknown, headers: Record<string, string> = {}): Promise<Res> {
-  const raw = Buffer.isBuffer(body);
-  const res = await fetch(`${API_URL}/api${path}`, {
-    method,
-    headers: {
-      'Content-Type': raw ? 'application/octet-stream' : 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...headers,
-    },
-    body: body === undefined ? undefined : raw ? (body as Buffer) : JSON.stringify(body),
-  });
-  let data: any = null;
-  try { data = await res.json(); } catch { /* empty body */ }
-  return { status: res.status, data };
-}
-
 test.describe('Security guards (API)', () => {
   let projectId: string;
   let admin: string;
@@ -73,27 +57,34 @@ test.describe('Security guards (API)', () => {
   });
 
   test('uploads accept real files of allowed types only', async () => {
-    const lists = (await call('GET', '/lists', admin)).data.lists;
-    const pick = (list: string, label: string) => lists[list].find((v: { label: string }) => v.label === label)?.id;
-    const me = (await call('GET', '/auth/me', admin)).data;
-    const cr = await call('POST', '/change-requests', admin, {
-      title: `E2E uploads ${Date.now()}`, description: 'upload checks', productIds: [lists.product[0].id],
-      changeTypeId: pick('change_type', 'Product Enhancement'), releaseTypeId: pick('release_type', 'Minor'), priorityId: pick('priority', 'Low'),
-      impact: 'LOW', risk: 'LOW', plannedGoLive: '2031-03-01T21:00:00-05:00', assigneeId: (me.user ?? me).id, reporterId: (me.user ?? me).id, projectId,
-    });
-    expect(cr.status).toBe(201);
-    const up = (name: string, data: Buffer, type?: string) =>
-      call('POST', `/change-requests/${cr.data.id}/attachments`, admin, data, { 'X-File-Name': encodeURIComponent(name), ...(type ? { 'X-File-Type': type } : {}) });
+    const cr = await createChangeRequest(admin, `E2E uploads ${Date.now()}`, projectId);
+    const up = (name: string, data: Buffer, type?: string, viaApp = false) =>
+      call('POST', `/change-requests/${cr.id}/attachments`, admin, data, { 'X-File-Name': encodeURIComponent(name), ...(type ? { 'X-File-Type': type } : {}) }, viaApp);
+    const pdfBytes = (size = 0) => Buffer.concat([Buffer.from('%PDF-1.4\n'), Buffer.alloc(size, 0x61), Buffer.from('\n%%EOF\n')]);
 
-    const pdf = await up('runbook.pdf', Buffer.from('%PDF-1.4\n'), 'text/html');
+    const pdf = await up('runbook.pdf', pdfBytes(), 'text/html');
     expect(pdf.status).toBe(201);
     expect(pdf.data.mimeType).toBe('application/pdf'); // from the file, not the browser's claim
+    const docx = await up('plan.docx', zip({ '[Content_Types].xml': '<Types/>', 'word/document.xml': '<w:document/>' }));
+    expect(docx.status).toBe(201);
 
     const exe = Buffer.from([0x4d, 0x5a, 0x90, 0x00, 0x03, 0x00]);
     expect((await up('setup.exe', exe)).status).toBe(415);
     expect((await up('setup.pdf', exe)).status).toBe(415); // renamed executable
     expect((await up('page.html', Buffer.from('<script>alert(1)</script>'))).status).toBe(415);
     expect((await up('logo.svg', Buffer.from('<svg onload="x()"/>'))).status).toBe(415);
+    expect((await up('notes.docx', zip({ 'notes.txt': 'any zip' }))).status).toBe(415); // ZIP renamed to .docx
+    expect((await up('cut.pdf', Buffer.from('%PDF-1.4\n1 0 obj'))).status).toBe(415); // truncated PDF
+
+    // Through the web server (Nginx) like the browser: 2 MB works, over 10 MB is refused with 413
+    expect((await up('big.pdf', pdfBytes(2 * 1024 * 1024), undefined, true)).status).toBe(201);
+    expect((await up('huge.pdf', pdfBytes(11 * 1024 * 1024), undefined, true)).status).toBe(413);
+
+    // Downloads: need a login, and the attachment must belong to the CR in the URL
+    expect((await call('GET', `/change-requests/${cr.id}/attachments/${pdf.data.id}`)).status).toBe(401);
+    const other = await createChangeRequest(admin, `E2E other ${Date.now()}`, projectId);
+    expect((await call('GET', `/change-requests/${other.id}/attachments/${pdf.data.id}`, admin)).status).toBe(404);
+    for (const id of [cr.id, other.id]) await call('POST', `/change-requests/${id}/transition`, admin, { to: 'CANCELLED', reason: 'e2e cleanup' });
   });
 
   test.describe('email links', () => {

@@ -52,30 +52,35 @@ model Project {
 }
 
 model Task {
-  id                    String         @id @default(uuid())
-  system                String
-  taskName              String         @map("task_name")
-  description           String?
-  assignedTeam          String?        @map("assigned_team")
-  assignedUserId        String?        @map("assigned_user_id")
-  assignedUser          User?          @relation("AssignedUser", fields: [assignedUserId], references: [id])
-  plannedStartTime      DateTime?      @map("planned_start_time")
-  plannedEndTime        DateTime?      @map("planned_end_time")
-  actualStartTime       DateTime?      @map("actual_start_time")
-  actualEndTime         DateTime?      @map("actual_end_time")
-  status                String         @default("Pending")
-  notes                 String?
-  projectId             String         @map("project_id")
-  project               Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  id                       String         @id @default(uuid())
+  system                   String
+  taskName                 String         @map("task_name")
+  description              String?
+  assignedTeam             String?        @map("assigned_team")
+  assignedUserId           String?        @map("assigned_user_id")
+  assignedUser             User?          @relation("AssignedUser", fields: [assignedUserId], references: [id])
+  plannedStartTime         DateTime?      @map("planned_start_time")
+  plannedEndTime           DateTime?      @map("planned_end_time")
+  actualStartTime          DateTime?      @map("actual_start_time")
+  actualEndTime            DateTime?      @map("actual_end_time")
+  status                   String         @default("Pending")
+  notes                    String?
+  projectId                String         @map("project_id")
+  project                  Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
   // Optional: the change request (in the same project) this task belongs to. When a
   // CR has tagged tasks, its Review gate waits only for those, not the whole release.
-  changeRequestId       String?        @map("change_request_id")
-  changeRequest         ChangeRequest? @relation(fields: [changeRequestId], references: [id], onDelete: SetNull)
+  changeRequestId          String?        @map("change_request_id")
+  changeRequest            ChangeRequest? @relation(fields: [changeRequestId], references: [id], onDelete: SetNull)
   // When the "planned end has passed - mark it completed" email went out (sent once).
-  completionEmailSentAt DateTime?      @map("completion_email_sent_at")
-  sequenceNumber        Int            @map("sequence_number")
-  createdAt             DateTime       @default(now()) @map("created_at")
-  updatedAt             DateTime       @updatedAt @map("updated_at")
+  completionEmailSentAt    DateTime?      @map("completion_email_sent_at")
+  // Delivery state of that email: null (not due / not tried) | SENDING | SENT | FAILED.
+  // While SENDING, completionEmailClaimedAt is the claim time; a claim older than the
+  // lease (5 min) is treated as abandoned (worker crash) and can be taken over.
+  completionEmailStatus    String?        @map("completion_email_status")
+  completionEmailClaimedAt DateTime?      @map("completion_email_claimed_at")
+  sequenceNumber           Int            @map("sequence_number")
+  createdAt                DateTime       @default(now()) @map("created_at")
+  updatedAt                DateTime       @updatedAt @map("updated_at")
 
   dependsOn  TaskDependency[] @relation("TaskDependsOn")
   dependedBy TaskDependency[] @relation("TaskDependedBy")
@@ -264,6 +269,15 @@ model RolePermission {
   @@map("role_permissions")
 }
 
+// One row. A database trigger bumps `version` on any change to role_permissions, so
+// every API instance sees permission changes on the next check (no stale cache).
+model PermissionVersion {
+  id      Int    @id @default(1)
+  version BigInt @default(1)
+
+  @@map("permission_version")
+}
+
 model ChangeEvent {
   id              String        @id @default(uuid())
   changeRequestId String        @map("change_request_id")
@@ -316,11 +330,16 @@ model TaskAlert {
   // Owners already emailed for this task: one start alert per task per owner
   // (a new owner after a reassignment gets one; nobody gets two).
   notifiedUserIds String[]  @default([]) @map("notified_user_ids")
+  // A worker sending right now: who it is sending to and since when. Cleared when the
+  // send succeeds or fails; a claim older than the lease (5 min) can be taken over.
+  claimUserId     String?   @map("claim_user_id")
+  claimedAt       DateTime? @map("claimed_at")
   // No-owner reminder to Release Management (sent once, 15 min after the first notice)
   reminderSentAt  DateTime? @map("reminder_sent_at")
   createdAt       DateTime  @default(now()) @map("created_at")
   updatedAt       DateTime  @updatedAt @map("updated_at")
 
   @@index([status])
+  @@index([claimedAt])
   @@map("task_alerts")
 }

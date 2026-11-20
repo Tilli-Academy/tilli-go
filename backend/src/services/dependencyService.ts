@@ -4,6 +4,19 @@ import { AppError } from '../utils/errors';
 import { isDone } from '../types';
 import type { DependencyCheckResult, DependerTask } from '../types';
 
+/** The shared client or the client of a running transaction. */
+export type Db = Prisma.TransactionClient | typeof prisma;
+
+/**
+ * Serialise changes to one project's plan (tasks' times, owners, dependencies,
+ * deletes). Call first inside the transaction that checks AND saves: a second change
+ * to the same project waits until the first commits, then checks against it. The
+ * lock is released automatically at commit/rollback; other projects aren't affected.
+ */
+export async function lockProjectPlan(tx: Prisma.TransactionClient, projectId: string): Promise<void> {
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${'tilli-plan:' + projectId}, 0))`;
+}
+
 // ── canTaskExecute ──────────────────────────────────────────────────────────
 // Core reusable function: checks whether ALL dependencies of a task are done
 // (Completed, or N/A = not needed in this cutover). Returns a structured result usable by
@@ -140,25 +153,25 @@ export async function canTasksExecuteBatch(
 // Checks: if we add edges  taskId → each targetId, would taskId become
 // reachable from itself?
 
-export async function wouldCreateCycle(taskId: string, targetIds: string[]): Promise<boolean> {
+export async function wouldCreateCycle(taskId: string, targetIds: string[], db: Db = prisma): Promise<boolean> {
   if (targetIds.length === 0) return false;
   if (targetIds.includes(taskId)) return true;
 
   // Scope graph to the task's project to avoid loading the entire DB
-  const task = await prisma.task.findUnique({
+  const task = await db.task.findUnique({
     where: { id: taskId },
     select: { projectId: true },
   });
 
   if (!task) return false;
 
-  const projectTaskIds = await prisma.task.findMany({
+  const projectTaskIds = await db.task.findMany({
     where: { projectId: task.projectId },
     select: { id: true },
   });
   const projectIds = new Set(projectTaskIds.map((t) => t.id));
 
-  const allEdges = await prisma.taskDependency.findMany({
+  const allEdges = await db.taskDependency.findMany({
     where: {
       taskId: { in: [...projectIds] },
     },
@@ -225,14 +238,14 @@ export async function validateDependenciesExist(dependencyIds: string[]): Promis
  * task exists, all in the same project, and no cycle. `taskId` is null for a
  * task that doesn't exist yet (nothing can depend on it, so no cycle check).
  */
-export async function validateDependencies(taskId: string | null, projectId: string, dependencyIds: string[]): Promise<string[]> {
+export async function validateDependencies(taskId: string | null, projectId: string, dependencyIds: string[], db: Db = prisma): Promise<string[]> {
   const unique = [...new Set(dependencyIds)];
   if (taskId && unique.includes(taskId)) {
     throw new AppError('A task cannot depend on itself', 400);
   }
   if (unique.length === 0) return unique;
 
-  const depTasks = await prisma.task.findMany({
+  const depTasks = await db.task.findMany({
     where: { id: { in: unique } },
     select: { id: true, projectId: true },
   });
@@ -244,7 +257,7 @@ export async function validateDependencies(taskId: string | null, projectId: str
   if (depTasks.some((dep) => dep.projectId !== projectId)) {
     throw new AppError('Cross-project dependencies are not allowed', 400);
   }
-  if (taskId && (await wouldCreateCycle(taskId, unique))) {
+  if (taskId && (await wouldCreateCycle(taskId, unique, db))) {
     throw new AppError('Circular dependency detected', 400);
   }
   return unique;
@@ -263,8 +276,11 @@ export async function setDependencies(taskId: string, dependencyIds: string[]): 
   if (!task) {
     throw new AppError('Task not found', 404);
   }
-  const unique = await validateDependencies(taskId, task.projectId, dependencyIds);
-  await prisma.$transaction((tx) => writeDependencies(tx, taskId, unique));
+  await prisma.$transaction(async (tx) => {
+    await lockProjectPlan(tx, task.projectId);
+    const unique = await validateDependencies(taskId, task.projectId, dependencyIds, tx);
+    await writeDependencies(tx, taskId, unique);
+  });
 }
 
 // ── getDependers ────────────────────────────────────────────────────────────

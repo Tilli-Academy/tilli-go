@@ -67,7 +67,8 @@ docker/    docker-compose.yml, *.Dockerfile, api-entrypoint.sh, nginx/nginx.conf
 | GET/POST/PATCH/PUT/DELETE | /api/lists | JWT | Managed dropdown lists (writes need admin.lists) |
 | * | /api/change-requests | JWT | Change requests (see CHANGE_REQUESTS.md) |
 | GET | /health | Public | Docker health check |
-| GET/POST | /api/scheduler/status, /api/scheduler/trigger | Public | Scheduler |
+| GET | /api/scheduler/status | JWT | Scheduler stats |
+| POST | /api/scheduler/trigger | JWT (`cutover.manage`) | Run the scheduler now |
 
 ## Critical Rules (non-negotiable)
 1. **Backend is source of truth** — UI blocks are cosmetic, backend enforces all rules. Access is permission-based (`requirePermission('task.delete')`), never role names; see CHANGE_REQUESTS.md
@@ -90,7 +91,9 @@ Scheduler runs in API process every 60s. Phase 1: unblock Blocked→Pending. Pha
 - **Email:** Nodemailer (SMTP or JSON mock). HMAC-SHA256 token, 7-day expiry. Rate limited 15/min/IP.
 - **Auth:** JWT (24h), stored in localStorage, Axios Bearer interceptor. 401 clears token → login redirect. The role is read from the database on every request (not from the JWT), so a role change applies at once.
 - **Email links (acknowledge / complete):** HMAC token (not JWT) that must name the current owner (`uid`). The confirm pages send it in the `X-Link-Token` header (GET) or the POST body, never in the API URL; Nginx logs paths without query strings. The status change is one conditional update, so double clicks save once.
-- **Start alerts:** the worker claims (task, owner) in `task_alerts.notified_user_ids` with one atomic UPDATE before sending, and gives the claim back if the send fails.
+- **Email delivery (start alerts + completion email):** before sending, the worker claims the email with one conditional UPDATE (`task_alerts.claim_user_id/claimed_at`, `tasks.completion_email_status/claimed_at`). The claim is granted only if the task is still in the right state and still owned by that person. An email is recorded as sent only after the provider accepted it; a failed send releases the claim. A claim older than 5 min (crashed worker) can be taken over, and the scheduler re-queues such emails. Guarantee: at-least-once with duplicate suppression (see `worker/src/services/deliveryClaims.ts`).
+- **Permissions:** cached per API instance, keyed by `permission_version` (a trigger bumps it on any change to `role_permissions`), so changes apply on the next request on every instance.
+- **Concurrency:** plan changes (create, times/owner/dependencies, delete) run their checks and save in one transaction holding a per-project advisory lock. CR moves, CAB decisions and edits are conditional updates (409 if someone else changed the CR first). Each scheduler tick takes a short Redis lock, so several API instances don't run it at once.
 
 ## Docker
 | Service | Port (Host) | Health Check |
@@ -148,3 +151,5 @@ DATABASE_URL="postgresql://deployflow:change-me-in-production@localhost:5438/dep
 | `20261119000000_add_cr_fields_lists_permissions` | CR fields, list_values, change_products/documents/links, role_permissions |
 | `20261120000000_task_cr_tag_alert_owners` | tasks.change_request_id, task_alerts.notified_user_ids + reminder_sent_at |
 | `20261121000000_completion_email_once` | tasks.completion_email_sent_at (completion email sent once) |
+| `20261122000000_recoverable_notifications` | delivery claims: tasks.completion_email_status/claimed_at, task_alerts.claim_user_id/claimed_at |
+| `20261122010000_permission_version` | permission_version + trigger on role_permissions |

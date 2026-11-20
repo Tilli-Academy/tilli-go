@@ -23,6 +23,7 @@ Leaving **Assess** is a CAB decision (approver only, `cr.decide`):
 |---|---|
 | Each move needs a permission (submit/implement/review: `cr.edit`; close/cancel/withdraw: `cr.close`) | `workflow.ts` |
 | Back moves (bug found, rollback) need a reason; going back to Assess clears the approval | `service.ts` |
+| Moves, CAB decisions and edits are saved only if the CR hasn't changed meanwhile: two at once → one wins, the other gets 409 (reload) | `service.ts` |
 | "Bug found - back to Assess" only by the CR's assignee, its reporter or an approver (until the Roles page) | `workflow.ts`, `service.ts` |
 | Deployment date is locked once approved (send the CR back to change it) | `service.ts` |
 | Implement needs a plan (if the CR needs a cutover): a project with at least one task | `service.ts` |
@@ -77,7 +78,7 @@ migration; a Roles page will edit it in a follow-up PR). Replaces `CR_APPROVER_R
 | PUT | `/:id/project` | `{ projectId }` (null = none) or `{ create: { name, code, timeZone } }`; locked from Implement on |
 | PUT / DELETE | `/:id/documents/:typeId` | `{ attachmentId }` or `{ url }` |
 | POST / DELETE | `/:id/links`, `/:id/links/:otherId` | `{ number }` |
-| POST | `/:id/attachments` | raw body, header `X-File-Name` (10 MB max). Allowed: pdf, png, jpg, gif, webp, txt, csv, doc(x), xls(x), ppt(x), zip; the content must match the extension (else 415). The stored type comes from the file, not the browser |
+| POST | `/:id/attachments` | raw body, header `X-File-Name` (10 MB max). Allowed: pdf, png, jpg, gif, webp, txt, csv, doc(x), xls(x), ppt(x), zip; the content must match the extension (else 415): PDFs need their header and end marker, Office files must be real Office packages (a renamed ZIP or a file with VBA macros is refused). Not on closed / cancelled CRs. The stored type comes from the file, not the browser |
 | GET | `/:id/attachments/:attachmentId` | download (only images/PDF open inline) |
 
 Lists: `GET /api/lists` (active; `?all=1` everything + usage for admins), `POST /api/lists/:list`,

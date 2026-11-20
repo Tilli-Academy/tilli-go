@@ -268,7 +268,9 @@ export async function update(id: string, dto: UpdateChangeDTO, user: JwtPayload)
   if (changed.length === 0) return cr;
 
   await prisma.$transaction(async (tx) => {
-    await tx.changeRequest.update({ where: { id }, data: fields });
+    // Saved only if the status is still the one checked above (finished / date lock).
+    const saved = await tx.changeRequest.updateMany({ where: { id, status: cr.status }, data: fields });
+    if (saved.count === 0) throw changedMeanwhile();
     if (productsChanged) {
       await tx.changeProduct.deleteMany({ where: { changeRequestId: id } });
       await tx.changeProduct.createMany({ data: newProducts.map((productId) => ({ changeRequestId: id, productId })) });
@@ -313,15 +315,19 @@ export async function transition(id: string, to: string, reason: string | undefi
 
   // Going back to Assess voids the approval - it must pass CAB again.
   const voidApproval = to === 'ASSESS';
-  const [updated] = await prisma.$transaction([
-    prisma.changeRequest.update({
-      where: { id },
+  // One conditional update: only if the CR is still where we checked it, so two moves
+  // at the same moment can't both apply (the second gets 409 and nothing is saved).
+  const updated = await prisma.$transaction(async (tx) => {
+    const moved = await tx.changeRequest.updateMany({
+      where: { id, status: cr.status },
       data: { status: to, ...(voidApproval ? { approvedById: null, approvedAt: null, decision: null, decidedAt: null, decidedById: null } : {}) },
-    }),
-    prisma.changeEvent.create({
+    });
+    if (moved.count === 0) throw changedMeanwhile();
+    await tx.changeEvent.create({
       data: { changeRequestId: id, kind: 'STATUS', fromStatus: cr.status, toStatus: to, actorId: user.id, message: reason || null },
-    }),
-  ]);
+    });
+    return tx.changeRequest.findUniqueOrThrow({ where: { id } });
+  });
   logger.info({ crId: id, from: cr.status, to, by: user.id }, 'Change request status changed');
   return updated;
 }
@@ -348,9 +354,11 @@ export async function decide(id: string, decision: Decision, reason: string | un
 
   const now = new Date();
   const label = (await prisma.listValue.findUnique({ where: { list_key: { list: 'decision', key: decision } } }))?.label ?? decision;
-  const [updated] = await prisma.$transaction([
-    prisma.changeRequest.update({
-      where: { id },
+  // One conditional update: only while still in Assess. Two approvers deciding at the
+  // same moment can't overwrite each other; the second gets 409.
+  const updated = await prisma.$transaction(async (tx) => {
+    const decided = await tx.changeRequest.updateMany({
+      where: { id, status: 'ASSESS', updatedAt: cr.updatedAt },
       data: {
         status: rule.to,
         decision,
@@ -359,8 +367,9 @@ export async function decide(id: string, decision: Decision, reason: string | un
         ...(decision === 'APPROVED' ? { approvedById: user.id, approvedAt: now } : { approvedById: null, approvedAt: null }),
         ...(decision === 'DEFERRED' ? { datePresented } : {}),
       },
-    }),
-    prisma.changeEvent.create({
+    });
+    if (decided.count === 0) throw changedMeanwhile();
+    await tx.changeEvent.create({
       data: {
         changeRequestId: id,
         kind: rule.to === cr.status ? 'DECISION' : 'STATUS',
@@ -369,8 +378,9 @@ export async function decide(id: string, decision: Decision, reason: string | un
         actorId: user.id,
         message: [label, decision === 'DEFERRED' ? `to CAB on ${datePresented!.toISOString().slice(0, 10)}` : null, reason].filter(Boolean).join(' - '),
       },
-    }),
-  ]);
+    });
+    return tx.changeRequest.findUniqueOrThrow({ where: { id } });
+  });
   logger.info({ crId: id, decision, by: user.id }, 'CAB decision');
   return updated;
 }
@@ -514,8 +524,7 @@ async function editable(id: string) {
 const MAX_BYTES = 10 * 1024 * 1024;
 
 export async function addAttachment(id: string, fileName: string, data: Buffer, user: JwtPayload) {
-  const cr = await prisma.changeRequest.findUnique({ where: { id } });
-  if (!cr) throw new AppError('Change request not found', 404);
+  const cr = await editable(id); // not on a closed / cancelled change
   if (!fileName || data.length === 0) throw new AppError('Empty file', 400);
   if (data.length > MAX_BYTES) throw new AppError('File is larger than 10 MB', 413);
   // Allowed types only; the stored type comes from the file itself, not the browser.
@@ -544,6 +553,10 @@ export async function meta(user: JwtPayload) {
   ]);
   return { users, permissions, approverRoles, canApprove: await hasPermission(user, 'cr.decide') };
 }
+
+/** Someone else moved or decided the CR between our read and our save. */
+const changedMeanwhile = () =>
+  new AppError('This change request was just updated by someone else - reload it and try again', 409);
 
 async function ensureExists(id: string) {
   const found = await prisma.changeRequest.findUnique({ where: { id }, select: { id: true } });

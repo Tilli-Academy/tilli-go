@@ -13,6 +13,11 @@ const transporter = config.smtp.host && config.smtp.user
       port: config.smtp.port,
       secure: config.smtp.port === 465,
       auth: { user: config.smtp.user, pass: config.smtp.pass },
+      // Well under the 5-minute delivery claim (services/deliveryClaims.ts), so a hung
+      // send fails and is retried instead of outliving its claim.
+      connectionTimeout: 30_000,
+      greetingTimeout: 30_000,
+      socketTimeout: 60_000,
     })
   : nodemailer.createTransport({ jsonTransport: true });
 

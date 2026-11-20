@@ -3,7 +3,7 @@ import prisma from '../config/prisma';
 import logger from '../config/logger';
 import { AppError } from '../utils/errors';
 import { assertNoOwnerClash } from '../modules/cutover/rules';
-import { assertDependenciesMet, validateDependencies, writeDependencies } from './dependencyService';
+import { assertDependenciesMet, lockProjectPlan, validateDependencies, writeDependencies } from './dependencyService';
 import { addReassignedJob } from './queueService';
 import {
   TASK_INCLUDE,
@@ -113,27 +113,31 @@ async function create(data: CreateTaskDTO, opts: CreateTaskOptions = {}): Promis
     throw new AppError('Project not found', 404);
   }
 
-  // Check dependencies before anything is saved (a bad list used to leave a half-made task).
-  const deps = dependencies ? await validateDependencies(null, taskData.projectId, dependencies) : [];
   await assertChangeRequestInProject(taskData.changeRequestId, taskData.projectId);
 
-  // Cutover planning rules: end >= start, and parallel tasks need different owners.
-  await assertNoOwnerClash(
-    {
-      projectId: taskData.projectId,
-      sequenceNumber: 0,
-      taskName: taskData.taskName,
-      status: TaskStatus.Pending,
-      assignedUserId: taskData.assignedUserId ?? null,
-      assignedTeam: taskData.assignedTeam ?? null,
-      plannedStartTime: taskData.plannedStartTime ?? null,
-      plannedEndTime: taskData.plannedEndTime ?? null,
-    },
-    dependencies,
-  );
-
-  // Generate sequenceNumber atomically within a transaction
+  // Checks and save run in one transaction holding the project's plan lock, so two
+  // concurrent changes can't both pass the owner-clash / dependency checks.
   const task = await prisma.$transaction(async (tx) => {
+    await lockProjectPlan(tx, taskData.projectId);
+    // Check dependencies before anything is saved (a bad list used to leave a half-made task).
+    const deps = dependencies ? await validateDependencies(null, taskData.projectId, dependencies, tx) : [];
+    // Cutover planning rules: end >= start, and parallel tasks need different owners.
+    await assertNoOwnerClash(
+      {
+        projectId: taskData.projectId,
+        sequenceNumber: 0,
+        taskName: taskData.taskName,
+        status: TaskStatus.Pending,
+        assignedUserId: taskData.assignedUserId ?? null,
+        assignedTeam: taskData.assignedTeam ?? null,
+        plannedStartTime: taskData.plannedStartTime ?? null,
+        plannedEndTime: taskData.plannedEndTime ?? null,
+      },
+      deps,
+      tx,
+    );
+
+    // sequenceNumber: next in the project (the plan lock also serialises this)
     const lastTask = await tx.task.findFirst({
       where: { projectId: taskData.projectId },
       orderBy: { sequenceNumber: 'desc' },
@@ -216,69 +220,78 @@ async function update(id: string, data: UpdateTaskDTO, opts: UpdateTaskOptions =
     taskFields.plannedEndTime = new Date(new Date(taskFields.plannedStartTime).getTime() + durationMs);
   }
 
-  // Check dependencies before the clash check trusts them, and before anything is saved.
-  const deps = dependencies !== undefined ? await validateDependencies(id, existing.projectId, dependencies) : undefined;
   await assertChangeRequestInProject(taskFields.changeRequestId, existing.projectId);
 
-  // Cutover planning rules - only when the schedule, owner or dependencies change,
-  // so status-only updates from the scheduler/worker are never blocked.
+  // Changes to the plan (times, owner, dependencies) are checked and saved in one
+  // transaction holding the project's plan lock: two concurrent edits can't both pass
+  // the owner-clash / cycle checks. Status-only updates (scheduler, worker) skip the lock.
   const PLAN_FIELDS = ['plannedStartTime', 'plannedEndTime', 'assignedUserId', 'assignedTeam'] as const;
-  if (PLAN_FIELDS.some((f) => f in taskFields) || dependencies !== undefined) {
-    const pick = <T,>(next: T | undefined, old: T): T => (next === undefined ? old : next);
-    await assertNoOwnerClash(
-      {
-        id,
-        projectId: existing.projectId,
-        sequenceNumber: existing.sequenceNumber,
-        taskName: pick(taskFields.taskName, existing.taskName),
-        status: pick(taskFields.status, existing.status),
-        assignedUserId: pick(taskFields.assignedUserId, existing.assignedUserId),
-        assignedTeam: pick(taskFields.assignedTeam, existing.assignedTeam),
-        plannedStartTime: pick(taskFields.plannedStartTime, existing.plannedStartTime),
-        plannedEndTime: pick(taskFields.plannedEndTime, existing.plannedEndTime),
-      },
-      deps,
-    );
-  }
-
-  // Build audit entries for changed fields.
-  // Uses Record cast because we're iterating dynamic keys — the type system
-  // can't statically verify which properties we're comparing, but at runtime
-  // these are always valid Task field names from the validated UpdateTaskDTO.
-  const existingRecord = existing as unknown as Record<string, unknown>;
-  const auditEntries: CreateAuditLogEntry[] = [];
-
-  for (const [key, value] of Object.entries(taskFields)) {
-    const oldVal = existingRecord[key];
-    if (oldVal !== value && value !== undefined) {
-      auditEntries.push({
-        taskId: id,
-        action: 'UPDATED',
-        field: key,
-        oldValue: oldVal == null ? null : String(oldVal),
-        newValue: value == null ? null : String(value),
-        userId,
-      });
-    }
-  }
-
-  // Fields, dependencies and audit are saved together: if any part fails, nothing is saved.
-  const oldDeps = (existing as TaskWithIncludes).dependsOn.map((d) => d.dependsOnTaskId).sort();
-  const newDeps = deps ? [...deps].sort() : oldDeps;
-  const depsChanged = deps !== undefined && (oldDeps.length !== newDeps.length || oldDeps.some((v, i) => v !== newDeps[i]));
-  if (depsChanged) {
-    auditEntries.push({
-      taskId: id,
-      action: 'UPDATED',
-      field: 'dependencies',
-      oldValue: oldDeps.join(',') || null,
-      newValue: newDeps.join(',') || null,
-      userId,
-    });
-  }
+  const planChange = PLAN_FIELDS.some((f) => f in taskFields) || dependencies !== undefined;
   const hasFieldUpdates = Object.keys(taskFields).length > 0;
 
   const updatedTask = await prisma.$transaction(async (tx) => {
+    let current = existing as TaskWithIncludes;
+    let deps: string[] | undefined;
+    if (planChange) {
+      await lockProjectPlan(tx, existing.projectId);
+      // Re-read under the lock: another change may have committed meanwhile.
+      const fresh = await tx.task.findUnique({ where: { id }, include: TASK_INCLUDE });
+      if (!fresh) throw new AppError('Task not found', 404);
+      if (LOCKED_STATUSES.has(fresh.status)) {
+        throw new AppError(fresh.status === TaskStatus.Completed ? 'Cannot modify a completed task' : 'Cannot modify a task marked N/A', 400);
+      }
+      current = fresh as TaskWithIncludes;
+      // Check dependencies before the clash check trusts them, and before anything is saved.
+      deps = dependencies !== undefined ? await validateDependencies(id, existing.projectId, dependencies, tx) : undefined;
+      const pick = <T,>(next: T | undefined, old: T): T => (next === undefined ? old : next);
+      await assertNoOwnerClash(
+        {
+          id,
+          projectId: current.projectId,
+          sequenceNumber: current.sequenceNumber,
+          taskName: pick(taskFields.taskName, current.taskName),
+          status: pick(taskFields.status, current.status),
+          assignedUserId: pick(taskFields.assignedUserId, current.assignedUserId),
+          assignedTeam: pick(taskFields.assignedTeam, current.assignedTeam),
+          plannedStartTime: pick(taskFields.plannedStartTime, current.plannedStartTime),
+          plannedEndTime: pick(taskFields.plannedEndTime, current.plannedEndTime),
+        },
+        deps,
+        tx,
+      );
+    }
+
+    // Audit entries for changed fields (dynamic keys from the validated UpdateTaskDTO).
+    const currentRecord = current as unknown as Record<string, unknown>;
+    const auditEntries: CreateAuditLogEntry[] = [];
+    for (const [key, value] of Object.entries(taskFields)) {
+      const oldVal = currentRecord[key];
+      if (oldVal !== value && value !== undefined) {
+        auditEntries.push({
+          taskId: id,
+          action: 'UPDATED',
+          field: key,
+          oldValue: oldVal == null ? null : String(oldVal),
+          newValue: value == null ? null : String(value),
+          userId,
+        });
+      }
+    }
+    const oldDeps = current.dependsOn.map((d) => d.dependsOnTaskId).sort();
+    const newDeps = deps ? [...deps].sort() : oldDeps;
+    const depsChanged = deps !== undefined && (oldDeps.length !== newDeps.length || oldDeps.some((v, i) => v !== newDeps[i]));
+    if (depsChanged) {
+      auditEntries.push({
+        taskId: id,
+        action: 'UPDATED',
+        field: 'dependencies',
+        oldValue: oldDeps.join(',') || null,
+        newValue: newDeps.join(',') || null,
+        userId,
+      });
+    }
+
+    // Fields, dependencies and audit are saved together: if any part fails, nothing is saved.
     if (hasFieldUpdates) {
       await tx.task.update({ where: { id }, data: taskFields as Prisma.TaskUpdateInput });
     }
@@ -326,6 +339,9 @@ async function remove(id: string): Promise<void> {
   // could start too early. Refuse while any of them is still open; the user must
   // first remove the dependency (or finish / mark N/A those steps).
   await prisma.$transaction(async (tx) => {
+    // Same plan lock as create/update: no new dependency on this task can be saved
+    // between the check below and the delete.
+    await lockProjectPlan(tx, existing.projectId);
     const waiting = await tx.taskDependency.findMany({
       where: { dependsOnTaskId: id, task: { status: { notIn: [...DONE_STATUSES] } } },
       select: { task: { select: { sequenceNumber: true, taskName: true, project: { select: { code: true } } } } },

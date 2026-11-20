@@ -3,6 +3,7 @@
 // no-owner reminder (item 2). No database or network: Prisma and mail are faked.
 import { test, mock, afterEach, after } from 'node:test';
 import assert from 'node:assert/strict';
+import { installFakeDb } from './fakeDb';
 
 process.env.EMAIL_DOMAIN = 'tilli.pro';
 process.env.ALERT_ALLOWED_DOMAINS = 'tilli.pro';
@@ -40,60 +41,40 @@ test('worker dependency check: N/A counts as done, Pending does not', async () =
   }
 });
 
-/**
- * An in-memory task_alerts row that answers the worker's atomic claim / release
- * the same way the database does (each UPDATE runs as one step).
- */
-function alertRow(row: { status: string; recipient: string | null; notifiedUserIds: string[] }) {
-  const update = mock.fn(async (args: { data: Record<string, unknown> }) => Object.assign(row, args.data));
-  fake('taskAlert', { findUnique: async () => ({ ...row, notifiedUserIds: [...row.notifiedUserIds] }), createMany: async () => ({ count: 0 }), update, upsert: async () => ({}) });
-  fake('$executeRaw', async (strings: TemplateStringsArray, ...values: string[]) => {
-    const sql = strings.join('?');
-    if (sql.includes('array_append')) {
-      const [ownerId, to] = values;
-      if (row.notifiedUserIds.includes(ownerId!) || row.status === 'ACKNOWLEDGED') return 0;
-      row.notifiedUserIds.push(ownerId!);
-      Object.assign(row, { status: 'SENDING', recipient: to });
-      return 1;
-    }
-    if (sql.includes('array_remove')) row.notifiedUserIds = row.notifiedUserIds.filter((id) => id !== values[0]);
-    return 1;
-  });
-  return { row, update };
+/** The fake database (fakeDb.ts): task t1 is Triggered and owned by u2; u1 was emailed before. */
+function reassignedDb() {
+  const state = { task: { id: 't1', status: 'Triggered', assignedUserId: 'u2' }, alert: { status: 'SENT', recipient: 'u1@tilli.pro', notifiedUserIds: ['u1'], claimUserId: null, claimedAt: null } as Record<string, any>, loaded: () => task() };
+  return installFakeDb(prisma, state);
 }
 
 test('reassigned ready task: the new owner gets the start alert', async () => {
-  fake('task', { findUnique: async () => task() }); // now owned by u2
-  const { row, update } = alertRow({ status: 'SENT', recipient: 'u1@tilli.pro', notifiedUserIds: ['u1'] });
-  fake('auditLog', { create: async () => ({}) });
+  const db = reassignedDb();
   const mail = sent();
   const r = await emailProcessor(job({ taskId: 't1', type: 'triggered', ownerId: 'u2' }));
   assert.equal(r.status, 'sent');
   assert.equal(mail.mock.callCount(), 1);
   assert.equal(mail.mock.calls[0]!.arguments[0].to, 'u2@tilli.pro');
-  assert.deepEqual(row.notifiedUserIds, ['u1', 'u2']);
-  assert.equal(row.status, 'SENT');
-  assert.equal(update.mock.callCount(), 1);
+  assert.deepEqual(db.alert!.notifiedUserIds, ['u1', 'u2']);
+  assert.equal(db.alert!.status, 'SENT');
 });
 
 test('two workers handling the same alert at once send ONE email (audit fix)', async () => {
-  fake('task', { findUnique: async () => task() }); // owned by u2, not emailed yet
-  const { row } = alertRow({ status: 'SENT', recipient: 'u1@tilli.pro', notifiedUserIds: ['u1'] });
-  fake('auditLog', { create: async () => ({}) });
+  const db = reassignedDb();
   const mail = sent();
-  const results = await Promise.all([1, 2, 3].map(() => emailProcessor(job({ taskId: 't1', type: 'triggered', ownerId: 'u2' }))));
+  // The others either see "already alerted" or, while the winner is still sending,
+  // fail with "being sent by another worker" so BullMQ retries them later.
+  const results = await Promise.allSettled([1, 2, 3].map(() => emailProcessor(job({ taskId: 't1', type: 'triggered', ownerId: 'u2' }))));
   assert.equal(mail.mock.callCount(), 1);
-  assert.deepEqual(results.map((r) => r.status).sort(), ['sent', 'skipped', 'skipped']);
-  assert.deepEqual(row.notifiedUserIds, ['u1', 'u2']);
+  assert.equal(results.filter((r) => r.status === 'fulfilled' && r.value.status === 'sent').length, 1);
+  assert.deepEqual(db.alert!.notifiedUserIds, ['u1', 'u2']);
 });
 
 test('a failed send gives the claim back so the retry can send', async () => {
-  fake('task', { findUnique: async () => task() });
-  const { row } = alertRow({ status: 'SENT', recipient: 'u1@tilli.pro', notifiedUserIds: ['u1'] });
-  fake('auditLog', { create: async () => ({}) });
+  const db = reassignedDb();
   mock.method(transporter, 'sendMail', async () => { throw new Error('smtp down'); });
   await assert.rejects(emailProcessor(job({ taskId: 't1', type: 'triggered', ownerId: 'u2' })));
-  assert.deepEqual(row.notifiedUserIds, ['u1']);
+  assert.deepEqual(db.alert!.notifiedUserIds, ['u1']);
+  assert.equal(db.alert!.claimUserId, null);
   mock.restoreAll();
 });
 

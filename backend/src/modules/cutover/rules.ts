@@ -17,6 +17,7 @@
 import prisma from '../../config/prisma';
 import { AppError } from '../../utils/errors';
 import { isDone } from '../../types';
+import type { Db } from '../../services/dependencyService';
 
 export const LONG_RUNNING_MS = 24 * 60 * 60 * 1000;
 
@@ -105,9 +106,9 @@ export function findClashes(tasks: PlanTask[], edges: Map<string, string[]>): Cl
   return out;
 }
 
-export async function loadPlan(projectId: string) {
+export async function loadPlan(projectId: string, db: Db = prisma) {
   const [tasks, deps] = await Promise.all([
-    prisma.task.findMany({
+    db.task.findMany({
       where: { projectId },
       select: {
         id: true, sequenceNumber: true, taskName: true, status: true, system: true, description: true,
@@ -118,7 +119,7 @@ export async function loadPlan(projectId: string) {
       },
       orderBy: { sequenceNumber: 'asc' },
     }),
-    prisma.taskDependency.findMany({ where: { task: { projectId } }, select: { taskId: true, dependsOnTaskId: true } }),
+    db.taskDependency.findMany({ where: { task: { projectId } }, select: { taskId: true, dependsOnTaskId: true } }),
   ]);
   const edges = new Map<string, string[]>();
   for (const d of deps) edges.set(d.taskId, [...(edges.get(d.taskId) ?? []), d.dependsOnTaskId]);
@@ -133,11 +134,12 @@ export async function loadPlan(projectId: string) {
 export async function assertNoOwnerClash(
   candidate: Omit<PlanTask, 'id'> & { id?: string; projectId: string },
   dependencyIds?: string[],
+  db: Db = prisma,
 ): Promise<void> {
   assertEndAfterStart(candidate.plannedStartTime, candidate.plannedEndTime);
   if (!occupiesOwner({ ...candidate, id: candidate.id ?? "__new__" })) return;
 
-  const { tasks, edges } = await loadPlan(candidate.projectId);
+  const { tasks, edges } = await loadPlan(candidate.projectId, db);
   const others: PlanTask[] = tasks
     .filter((t) => t.id !== candidate.id)
     .map((t) => ({ ...t, ownerName: t.assignedUser?.name ?? null }));
@@ -147,7 +149,7 @@ export async function assertNoOwnerClash(
   const clash = findClashes([{ ...candidate, id }, ...others], edges).find((c) => c.a.id === id || c.b.id === id);
   if (clash) {
     const other = clash.a.id === id ? clash.b : clash.a;
-    const project = await prisma.project.findUnique({ where: { id: candidate.projectId }, select: { code: true } });
+    const project = await db.project.findUnique({ where: { id: candidate.projectId }, select: { code: true } });
     const who = other.ownerName ?? 'the same owner';
     throw new AppError(
       `Parallel task clash with ${project?.code ?? ''}-${other.sequenceNumber} "${other.taskName}": both run at the same time and are owned by ${who}. ` +

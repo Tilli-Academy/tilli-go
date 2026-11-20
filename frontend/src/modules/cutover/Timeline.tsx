@@ -320,7 +320,7 @@ function Bar({ t, pct, from, to, clash, dim, role, onClick }: {
   // The bar is often too short for the name, so hovering or focusing shows it in full straight away.
   return (
     <div className={`group absolute top-1.5 h-7 ${dim ? 'opacity-25' : ''} hover:z-20 focus-within:z-20`} style={style}>
-      <button type="button" onClick={onClick} aria-label={label}
+      <button type="button" onClick={onClick} aria-label={label} title={label}
         className={`h-full w-full cursor-pointer transition-opacity ${ring} rounded-md border text-left px-1.5 text-[11px] font-medium truncate ${STATUS[t.status] ?? STATUS.Pending} ${clash ? '!border-2 !border-rose-500' : ''}`}
         style={look}>
         {s < from && '◀ '}{t.alert && <span aria-hidden="true">{alertLabel(t.alert).icon} </span>}#{t.sequenceNumber} {t.taskName}{e > to && ' ▶'}
@@ -336,7 +336,7 @@ function TaskPanel({ t, model, code, tz, onPick }: { t: TTask; model: any; code:
   const list = (ids: string[] = [], tone: string) =>
     ids.length === 0 ? <p className="text-text-muted">None</p> : ids.map((id) => {
       const x: TTask = model.byId.get(id);
-      return <button key={id} type="button" onClick={() => onPick(id)} className={`block w-full text-left truncate rounded px-2 py-1 mb-1 ${tone} hover:underline`}>#{x.sequenceNumber} {x.taskName}</button>;
+      return <button key={id} type="button" onClick={() => onPick(id)} title={`#${x.sequenceNumber} ${x.taskName}`} className={`block w-full text-left truncate rounded px-2 py-1 mb-1 ${tone} hover:underline`}>#{x.sequenceNumber} {x.taskName}</button>;
     });
   const kind = durationKind(t.plannedStartTime, t.plannedEndTime);
   return (

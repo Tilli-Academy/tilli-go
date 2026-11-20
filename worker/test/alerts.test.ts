@@ -48,12 +48,13 @@ test('a database error after a successful send does not cause a second email (re
     project: { code: 'Q3', name: 'Q3 release' },
     dependsOn: [],
   };
-  // The claim (before sending) works; the status save after sending fails.
-  const update = mock.fn(async () => { throw new Error('database unavailable'); });
-  fake('task', { findUnique: async () => task });
-  fake('taskAlert', { findUnique: async () => null, createMany: async () => ({ count: 1 }), update });
-  fake('$executeRaw', async () => 1);
+  // The claim (before sending) works; saving the result after sending fails.
+  fake('task', { findUnique: async (a: { include?: unknown }) => (a.include ? task : { status: 'Triggered', assignedUserId: 'u1' }) });
+  fake('taskAlert', { findUnique: async () => null, createMany: async () => ({ count: 1 }) });
   fake('auditLog', { create: async () => ({}) });
+  fake('$queryRaw', async () => [{ claimed_at: new Date() }]);
+  const update = mock.fn(async () => { throw new Error('database unavailable'); });
+  fake('$executeRaw', update);
   const sendMail = mock.method(transporter, 'sendMail', async () => ({ messageId: '<m1@test>' }));
 
   const job = { id: 'j1', data: { taskId: 't1', type: 'triggered' }, attemptsMade: 0, opts: { attempts: 5 } };

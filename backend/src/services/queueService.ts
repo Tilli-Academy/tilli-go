@@ -68,6 +68,23 @@ export async function addEmailJob(data: EmailJobPayload): Promise<void> {
 }
 
 /**
+ * Re-send an email whose delivery claim was abandoned (a worker crashed mid-send).
+ * The jobId is new per recovery round, so BullMQ's 24 h de-duplication of the
+ * original job can't swallow it; the worker's claim still prevents duplicates.
+ */
+export async function addRecoveryEmailJob(data: EmailJobPayload, round: string): Promise<void> {
+  const jobId = `email-${data.taskId}-${data.type || 'notify'}${data.ownerId ? `-${data.ownerId}` : ''}-r${round}`;
+  await emailQueue.add('send-email', data, {
+    jobId,
+    attempts: 5,
+    backoff: { type: 'exponential', delay: 3000 },
+    removeOnComplete: { age: 86400 },
+    removeOnFail: { age: 7 * 86400 },
+  });
+  logger.warn({ jobId, taskId: data.taskId }, 'Abandoned email delivery re-queued');
+}
+
+/**
  * Enqueue a completion job for the worker to send a completion email.
  * Called by the scheduler when an Acknowledged task's plannedEndTime has passed.
  */

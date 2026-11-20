@@ -106,5 +106,8 @@ export const download = handle(async (req, res) => {
   res.setHeader('Content-Type', inline ? att.mimeType : 'application/octet-stream');
   res.setHeader('Content-Disposition', `${inline ? 'inline' : 'attachment'}; filename="${encodeURIComponent(att.fileName)}"`);
   res.setHeader('X-Content-Type-Options', 'nosniff');
+  // Nothing in a downloaded file may run scripts or load anything (the browser's PDF
+  // viewer needs to run, so PDFs are left without the sandbox).
+  if (att.mimeType !== 'application/pdf') res.setHeader('Content-Security-Policy', "default-src 'none'; sandbox");
   res.send(data);
 });

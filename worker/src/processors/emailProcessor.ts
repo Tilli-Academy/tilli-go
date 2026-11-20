@@ -3,6 +3,7 @@ import prisma from '../config/prisma';
 import logger from '../config/logger';
 import config from '../config';
 import { sendCompletionEmail, sendMailInternal } from '../services/emailService';
+import * as claims from '../services/deliveryClaims';
 import { buildManagerNotice, buildStartAlert, type AlertTask } from '../services/alertEmail';
 import type { EmailJobPayload, EmailProcessorResult } from '../types';
 
@@ -31,7 +32,7 @@ const processor = async (job: Job<EmailJobPayload>): Promise<EmailProcessorResul
     return { status: 'skipped', reason: 'task_not_found' };
   }
 
-  if (type === 'completion') return sendCompletion(task, log);
+  if (type === 'completion') return sendCompletion(job, task, log);
   if (type === 'no_owner') return noOwnerNotice(task, log);
   if (type === 'no_owner_reminder') return noOwnerReminder(task, log);
 
@@ -80,7 +81,7 @@ async function tellManager(task: AlertTask, reason: 'no_owner' | 'no_owner_remin
   }
 }
 
-async function sendCompletion(task: AlertTask & { status: string }, log: typeof logger): Promise<EmailProcessorResult> {
+async function sendCompletion(job: Job<EmailJobPayload>, task: AlertTask & { status: string }, log: typeof logger): Promise<EmailProcessorResult> {
   // Completion emails are only sent for Acknowledged tasks
   if (task.status !== 'Acknowledged') {
     log.info({ currentStatus: task.status }, 'Task not Acknowledged — skipping completion email');
@@ -92,23 +93,39 @@ async function sendCompletion(task: AlertTask & { status: string }, log: typeof 
     log.info({ to: to ?? null }, 'No company owner address — skipping completion email');
     return { status: 'skipped', reason: to ? 'blocked_domain' : 'no_owner' };
   }
-  // Claim first (one conditional update), so a re-queued job or a second worker
-  // can't send the same completion email again.
-  const claim = await prisma.task.updateMany({
-    where: { id: task.id, status: 'Acknowledged', completionEmailSentAt: null },
-    data: { completionEmailSentAt: new Date() },
-  });
-  if (claim.count === 0) {
-    log.info('Completion email already sent (or task moved on) — skipping');
+  const ownerId = task.assignedUser!.id;
+
+  // Claim (one conditional update: still Acknowledged, still this owner, not sent,
+  // no live claim). See services/deliveryClaims.ts for the delivery guarantee.
+  const claimedAt = await claims.claimCompletion(task.id, ownerId);
+  if (!claimedAt) {
+    const why = await claims.whyCompletionRefused(task.id, ownerId);
+    if (why === 'busy') throw new claims.ClaimBusyError('Completion email');
+    if (why === 'owner_changed') {
+      // Reassigned (or moved on) after we loaded the task: a retry reloads it.
+      throw new Error('Task changed while preparing the completion email - retrying with fresh data');
+    }
+    log.info('Completion email already sent — skipping');
     return { status: 'skipped', reason: 'already_sent' };
+  }
+
+  const attempt = job.attemptsMade + 1;
+  const final = attempt >= (job.opts.attempts ?? 1);
+  if (!(await claims.stillOwnedBy(task.id, ownerId, 'Acknowledged'))) {
+    await claims.releaseCompletion(task.id, claimedAt, false);
+    throw new Error('Task changed just before sending the completion email - retrying with fresh data');
   }
   let result: Awaited<ReturnType<typeof sendCompletionEmail>>;
   try {
     result = await sendCompletionEmail(task, to);
   } catch (err) {
-    // Give the claim back so the BullMQ retry can send it.
-    await prisma.task.updateMany({ where: { id: task.id }, data: { completionEmailSentAt: null } });
+    // Give the claim back so the BullMQ retry can send it (FAILED after the last attempt).
+    await claims.releaseCompletion(task.id, claimedAt, final);
     throw err;
+  }
+  // Recorded as sent only now, after the provider accepted it.
+  if (!(await claims.completeCompletion(task.id, claimedAt))) {
+    log.warn('Completion email sent, but the claim had expired and was taken over — a repeat is possible');
   }
   await audit(task.id, 'SYSTEM_EMAIL_SENT', `type=completion to=${to} messageId=${result.messageId}`);
   log.info({ messageId: result.messageId }, 'Completion email sent successfully');
@@ -186,18 +203,26 @@ async function sendStartAlert(job: Job<EmailJobPayload>, task: AlertTask, log: t
     return { status: 'skipped', reason: 'blocked_domain' };
   }
 
-  // Claim the right to send BEFORE sending: one conditional update adds this owner to
-  // the "already emailed" list only if they aren't on it yet. If two workers (or a
-  // retry and a fresh job) get here together, only one claim succeeds, so the owner
-  // can't get the same alert twice.
+  // Claim before sending (see services/deliveryClaims.ts). Granted only if this owner
+  // hasn't been emailed, the task is still Triggered AND still theirs, and no other
+  // worker holds a live claim. An abandoned claim (crashed worker) expires after 5 min.
   const ownerId = task.assignedUser.id;
-  if (!(await claimAlert(taskId, ownerId, to))) {
-    log.info('Another worker already claimed this alert — skipping');
-    return { status: 'skipped', reason: 'already_alerted' };
+  const claimedAt = await claims.claimStartAlert(taskId, ownerId, to);
+  if (!claimedAt) {
+    const why = await claims.whyStartAlertRefused(taskId, ownerId);
+    if (why === 'busy') throw new claims.ClaimBusyError('Start-time alert');
+    log.info({ why }, why === 'owner_changed' ? 'Task reassigned or moved on — not alerting the old owner' : 'Alert already sent to this owner');
+    return { status: 'skipped', reason: why };
   }
 
   const attempt = job.attemptsMade + 1;
   const maxAttempts = job.opts.attempts ?? 1;
+  // Last check right before handing the email over: never alert an outdated owner.
+  if (!(await claims.stillOwnedBy(taskId, ownerId, 'Triggered'))) {
+    await claims.releaseStartAlert(taskId, ownerId, claimedAt);
+    log.info('Task reassigned while preparing the alert — not sent to the old owner');
+    return { status: 'skipped', reason: 'owner_changed' };
+  }
   let messageId: string;
   try {
     const { subject, html } = buildStartAlert(task);
@@ -206,50 +231,25 @@ async function sendStartAlert(job: Job<EmailJobPayload>, task: AlertTask, log: t
     // Only a failed SEND is retried. Give the claim back so the retry can take it.
     const message = err instanceof Error ? err.message : String(err);
     const final = attempt >= maxAttempts;
-    await releaseAlert(taskId, ownerId);
+    await claims.releaseStartAlert(taskId, ownerId, claimedAt);
     await recordAlert(taskId, { status: final ? 'FAILED' : 'RETRYING', recipient: to, attempts: attempt, lastError: message.slice(0, 500) });
     await audit(taskId, final ? 'ALERT_FAILED' : 'ALERT_RETRY', `to=${to} attempt ${attempt} of ${maxAttempts}: ${message.slice(0, 200)}`);
     if (final) await tellManager(task, 'failed', message.slice(0, 200));
     throw err;
   }
 
-  // The email is out. If saving that fails, log it but don't throw: a retry would
-  // send the same email again (and later report a delivery failure that didn't happen).
-  // The claim already records this owner as emailed.
+  // The email is out: record it (only the claim holder can). If saving fails, log it
+  // but don't throw: a BullMQ retry would send the same email again right away.
   try {
-    await prisma.taskAlert.update({
-      where: { taskId },
-      data: { status: 'SENT', recipient: to, sentAt: new Date(), attempts: attempt, lastError: null, messageId },
-    });
+    if (!(await claims.completeStartAlert(taskId, ownerId, claimedAt, { messageId, attempts: attempt }))) {
+      log.warn({ messageId, to }, 'Alert sent, but the claim had expired and was taken over — a repeat is possible');
+    }
   } catch (err: unknown) {
     log.error({ err: err instanceof Error ? err.message : String(err), messageId, to }, 'Alert sent but its status could not be saved — not retrying');
   }
   await audit(taskId, 'EMAIL_SENT', `to=${to} attempt=${attempt} messageId=${messageId}`);
   log.info({ messageId, to }, 'Start-time alert sent');
   return { status: 'sent', messageId };
-}
-
-/**
- * Atomically mark `ownerId` as emailed for this task. Returns false when someone else
- * already did (or the owner already started), so the caller must not send.
- */
-async function claimAlert(taskId: string, ownerId: string, to: string): Promise<boolean> {
-  await prisma.taskAlert.createMany({ data: [{ taskId, status: 'SENDING', recipient: to }], skipDuplicates: true });
-  const claimed = await prisma.$executeRaw`
-    UPDATE task_alerts
-       SET notified_user_ids = array_append(notified_user_ids, ${ownerId}),
-           status = 'SENDING', recipient = ${to}, updated_at = now()
-     WHERE task_id = ${taskId}
-       AND NOT (${ownerId} = ANY(notified_user_ids))
-       AND status <> 'ACKNOWLEDGED'`;
-  return claimed === 1;
-}
-
-/** Undo a claim after a failed send, so a retry can send. */
-async function releaseAlert(taskId: string, ownerId: string): Promise<void> {
-  await prisma.$executeRaw`
-    UPDATE task_alerts SET notified_user_ids = array_remove(notified_user_ids, ${ownerId}), updated_at = now()
-     WHERE task_id = ${taskId}`;
 }
 
 export = processor;
