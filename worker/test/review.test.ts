@@ -4,6 +4,7 @@
 import { test, mock, afterEach, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { Queue } from 'bullmq';
+import { installFakeDb, LEASE_MS, type FakeState } from './fakeDb';
 
 process.env.EMAIL_DOMAIN = 'tilli.pro';
 process.env.ALERT_ALLOWED_DOMAINS = 'tilli.pro';
@@ -83,40 +84,120 @@ const heldTask = {
   assignedUser: null, project: { code: 'REL', name: 'Release', timeZone: 'America/Chicago' }, dependsOn: [],
 };
 const emailJob = (type: string, attemptsMade = 0) => ({ id: 'j', name: 'send-email', data: { taskId: 't1', type }, attemptsMade, opts: { attempts: 5 } });
+const RM = 'release-management@tilli.pro';
+const old = () => new Date(Date.now() - LEASE_MS - 1000);
 
-function noOwnerDb(alert: Record<string, unknown> | null) {
-  const state = { alert };
-  fake('task', { findUnique: async () => heldTask });
-  fake('auditLog', { create: async () => ({}) });
-  fake('taskAlert', {
-    findUnique: async () => state.alert,
-    upsert: async ({ create, update }: { create: Record<string, unknown>; update: Record<string, unknown> }) => (state.alert = state.alert ? { ...state.alert, ...update } : create),
-    update: async ({ data }: { data: Record<string, unknown> }) => (state.alert = { ...state.alert, ...data }),
-  });
-  return state;
+/** Fake database (fakeDb.ts): task t1 is waiting with no owner; `alert` is its task_alerts row. */
+function noOwnerDb(alert: Record<string, unknown> | null, task: Record<string, unknown> = {}) {
+  const state: FakeState = {
+    task: { id: 't1', status: 'Pending', assignedUserId: null, ...task },
+    alert: alert && { notifiedUserIds: [], claimUserId: null, claimedAt: null, reminderSentAt: null, ...alert },
+    loaded: () => ({ ...heldTask, status: state.task.status }),
+  };
+  return installFakeDb(prisma, state);
 }
+// The send takes a moment (like a real mail server), so concurrent jobs really overlap.
+const mailbox = () => mock.method(transporter, 'sendMail', async () => { await new Promise((r) => setTimeout(r, 5)); return { messageId: '<m@test>' }; });
+const smtpDown = () => mock.method(transporter, 'sendMail', async () => { throw new Error('smtp down'); });
 
 test('no-owner notice: a failed send is NOT recorded and the job retries; the retry sends and records', async () => {
   const db = noOwnerDb(null);
-  mock.method(transporter, 'sendMail', async () => { throw new Error('smtp down'); });
+  smtpDown();
   await assert.rejects(emailProcessor(emailJob('no_owner')), /smtp down/);
-  assert.equal(db.alert, null, 'nothing recorded, so the retry will send it');
+  assert.notEqual(db.alert!.status, 'NO_OWNER', 'not recorded as told');
+  assert.equal(db.alert!.claimUserId, null, 'claim released for the retry');
   mock.restoreAll();
-  noOwnerDb(db.alert);
-  const mail = mock.method(transporter, 'sendMail', async () => ({ messageId: '<m@test>' }));
+  const mail = mailbox();
   assert.equal((await emailProcessor(emailJob('no_owner', 1))).status, 'sent');
   assert.equal(mail.mock.callCount(), 1);
-  assert.equal(mail.mock.calls[0]!.arguments[0].to, 'release-management@tilli.pro');
+  assert.equal(mail.mock.calls[0]!.arguments[0].to, RM);
+  assert.equal(db.alert!.status, 'NO_OWNER');
 });
 
-test('no-owner reminder: a failed send is NOT recorded and the job retries', async () => {
-  const db = noOwnerDb({ status: 'NO_OWNER', reminderSentAt: null });
-  mock.method(transporter, 'sendMail', async () => { throw new Error('smtp down'); });
+test('no-owner reminder: a failed send is NOT recorded and the job retries; the retry sends', async () => {
+  const db = noOwnerDb({ status: 'NO_OWNER', sentAt: new Date() });
+  smtpDown();
   await assert.rejects(emailProcessor(emailJob('no_owner_reminder')), /smtp down/);
-  assert.equal((db.alert as { reminderSentAt: unknown }).reminderSentAt, null);
+  assert.equal(db.alert!.reminderSentAt, null);
   mock.restoreAll();
-  const mail = mock.method(transporter, 'sendMail', async () => ({ messageId: '<m@test>' }));
+  const mail = mailbox();
   assert.equal((await emailProcessor(emailJob('no_owner_reminder', 1))).status, 'sent');
   assert.equal(mail.mock.callCount(), 1);
-  assert.ok((db.alert as { reminderSentAt: unknown }).reminderSentAt instanceof Date);
+  assert.ok(db.alert!.reminderSentAt instanceof Date);
+});
+
+test('two notice jobs at the same moment: Release Management is told once', async () => {
+  const db = noOwnerDb(null);
+  const mail = mailbox();
+  const results = await Promise.allSettled([1, 2, 3].map(() => emailProcessor(emailJob('no_owner'))));
+  assert.equal(mail.mock.callCount(), 1);
+  assert.equal(results.filter((r) => r.status === 'fulfilled' && r.value.status === 'sent').length, 1);
+  assert.equal(db.alert!.status, 'NO_OWNER');
+});
+
+test('two reminder jobs at the same moment: one reminder', async () => {
+  noOwnerDb({ status: 'NO_OWNER', sentAt: new Date() });
+  const mail = mailbox();
+  await Promise.allSettled([1, 2, 3].map(() => emailProcessor(emailJob('no_owner_reminder'))));
+  assert.equal(mail.mock.callCount(), 1);
+});
+
+test('a claim left by a crashed worker is taken over after the lease; a live one makes the job retry', async () => {
+  let db = noOwnerDb({ status: 'SENDING', claimUserId: 'release-manager:no-owner', claimedAt: new Date() });
+  let mail = mailbox();
+  await assert.rejects(emailProcessor(emailJob('no_owner')), /another worker/);
+  assert.equal(mail.mock.callCount(), 0);
+  mock.restoreAll();
+  db = noOwnerDb({ status: 'SENDING', claimUserId: 'release-manager:no-owner', claimedAt: old() });
+  mail = mailbox();
+  assert.equal((await emailProcessor(emailJob('no_owner'))).status, 'sent');
+  assert.equal(mail.mock.callCount(), 1);
+  assert.equal(db.alert!.status, 'NO_OWNER');
+});
+
+test('email sent but recording fails: not thrown (no immediate resend), and the claim protects for the lease', async () => {
+  const db = noOwnerDb(null);
+  db.failRecord = true;
+  const mail = mailbox();
+  assert.equal((await emailProcessor(emailJob('no_owner'))).status, 'sent', 'no throw, so BullMQ does not resend it');
+  assert.equal(mail.mock.callCount(), 1);
+  // A second job right away sees the live claim and retries later instead of sending.
+  await assert.rejects(emailProcessor(emailJob('no_owner')), /another worker/);
+  assert.equal(mail.mock.callCount(), 1);
+});
+
+test('an owner assigned meanwhile: no notice', async () => {
+  noOwnerDb(null, { assignedUserId: 'u1' });
+  const mail = mailbox();
+  const r = await emailProcessor(emailJob('no_owner'));
+  assert.equal(r.status, 'skipped');
+  assert.equal(mail.mock.callCount(), 0);
+});
+
+test('start-alert path with no owner uses the same claimed notice (sent first, then recorded)', async () => {
+  const db = noOwnerDb(null, { status: 'Triggered' });
+  smtpDown();
+  await assert.rejects(emailProcessor(emailJob('triggered')), /smtp down/);
+  assert.notEqual(db.alert!.status, 'NO_OWNER', 'a failed send is not recorded');
+  mock.restoreAll();
+  const mail = mailbox();
+  assert.equal((await emailProcessor(emailJob('triggered', 1))).reason, 'no_owner');
+  assert.equal(mail.mock.callCount(), 1);
+  assert.equal(db.alert!.status, 'NO_OWNER');
+});
+
+// ── Link types in the emails the worker sends ───────────────────────────────
+
+test('start-time email links are typed "ack", completion email links "complete" (and name the owner)', () => {
+  const { buildCompleteUrl } = require('../src/services/emailService');
+  const { buildStartAlert } = require('../src/services/alertEmail');
+  const decode = (url: string) => JSON.parse(Buffer.from(new URL(url.replace('#/', '')).searchParams.get('token')!.split('.')[0]!, 'base64url').toString());
+  const alert = buildStartAlert({ ...heldTask, status: 'Triggered', assignedUser: { id: 'u1', email: 'u1@tilli.pro', name: 'U1' } });
+  const ackUrl = (alert.html as string).match(/https?:[^"']*acknowledge\?[^"']*/)![0].replace(/&amp;/g, '&');
+  const ack = decode(ackUrl);
+  assert.equal(ack.kind, 'ack');
+  assert.equal(ack.uid, 'u1');
+  const complete = decode(buildCompleteUrl('t1', 'u1', new Date()));
+  assert.equal(complete.kind, 'complete');
+  assert.equal(complete.uid, 'u1');
 });

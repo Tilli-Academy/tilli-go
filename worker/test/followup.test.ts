@@ -110,26 +110,30 @@ test('reassignment job: only for a ready task with alerts on, for the current ow
 });
 
 test('no-owner reminder: sent once, never after an owner is assigned', async () => {
-  const update = mock.fn(async () => ({}));
-  fake('auditLog', { create: async () => ({}) });
+  const held = () => task({ status: 'Pending', assignedUser: null });
+  const reminderDb = (alert: Record<string, unknown>, assignedUserId: string | null = null) =>
+    installFakeDb(prisma, {
+      task: { id: 't1', status: 'Pending', assignedUserId },
+      alert: { notifiedUserIds: [], claimUserId: null, claimedAt: null, status: 'NO_OWNER', sentAt: new Date(), reminderSentAt: null, ...alert },
+      loaded: () => (assignedUserId ? task({ status: 'Pending', assignedUser: owner(assignedUserId) }) : held()),
+    });
   // still no owner, first reminder → sent to Release Management
-  fake('task', { findUnique: async () => task({ status: 'Pending', assignedUser: null }) });
-  fake('taskAlert', { findUnique: async () => ({ status: 'NO_OWNER', reminderSentAt: null }), update });
+  let db = reminderDb({});
   let mail = sent();
   assert.equal((await emailProcessor(job({ taskId: 't1', type: 'no_owner_reminder' }))).status, 'sent');
   assert.equal(mail.mock.callCount(), 1);
   assert.equal(mail.mock.calls[0]!.arguments[0].to, 'release-management@tilli.pro');
   assert.match(mail.mock.calls[0]!.arguments[0].subject, /Reminder/);
-  assert.equal(update.mock.callCount(), 1, 'reminder time saved');
+  assert.ok(db.alert!.reminderSentAt instanceof Date, 'reminder time saved');
   mock.restoreAll();
   // already reminded → nothing
-  fake('taskAlert', { findUnique: async () => ({ status: 'NO_OWNER', reminderSentAt: new Date() }), update });
+  db = reminderDb({ reminderSentAt: new Date() });
   mail = sent();
   assert.equal((await emailProcessor(job({ taskId: 't1', type: 'no_owner_reminder' }))).reason, 'already_reminded');
   assert.equal(mail.mock.callCount(), 0);
   mock.restoreAll();
   // owner assigned meanwhile → nothing
-  fake('task', { findUnique: async () => task({ status: 'Pending', assignedUser: owner('u1') }) });
+  reminderDb({}, 'u1');
   mail = sent();
   assert.equal((await emailProcessor(job({ taskId: 't1', type: 'no_owner_reminder' }))).reason, 'owner_assigned');
   assert.equal(mail.mock.callCount(), 0);

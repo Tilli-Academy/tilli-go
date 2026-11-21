@@ -166,6 +166,10 @@ async function create(data: CreateTaskDTO, opts: CreateTaskOptions = {}): Promis
 
 // ── Update ──────────────────────────────────────────────────────────────────
 
+/** The task's status changed after it was read and checked: nothing is saved. */
+const changedMeanwhile = (status: string) =>
+  new AppError(`This task changed meanwhile (it is now ${status}) - reload and try again`, 409);
+
 async function update(id: string, data: UpdateTaskDTO, opts: UpdateTaskOptions = {}): Promise<TaskResponse> {
   const existing = await prisma.task.findUnique({
     where: { id },
@@ -237,9 +241,9 @@ async function update(id: string, data: UpdateTaskDTO, opts: UpdateTaskOptions =
       // Re-read under the lock: another change may have committed meanwhile.
       const fresh = await tx.task.findUnique({ where: { id }, include: TASK_INCLUDE });
       if (!fresh) throw new AppError('Task not found', 404);
-      if (LOCKED_STATUSES.has(fresh.status)) {
-        throw new AppError(fresh.status === TaskStatus.Completed ? 'Cannot modify a completed task' : 'Cannot modify a task marked N/A', 400);
-      }
+      // The status checks above (transition, dependencies, locked) used `existing`:
+      // if the status moved since, they no longer hold - refuse instead of re-deciding.
+      if (fresh.status !== existing.status) throw changedMeanwhile(fresh.status);
       current = fresh as TaskWithIncludes;
       // Check dependencies before the clash check trusts them, and before anything is saved.
       deps = dependencies !== undefined ? await validateDependencies(id, existing.projectId, dependencies, tx) : undefined;
@@ -295,16 +299,15 @@ async function update(id: string, data: UpdateTaskDTO, opts: UpdateTaskOptions =
     if (hasFieldUpdates) {
       // Saved only if the status is still the one every check above was based on:
       // e.g. a grid "N/A" can't overwrite a task the owner acknowledged meanwhile.
+      // (`existing.status` is the status the transition and dependency checks were made against.)
       const saved = await tx.task.updateMany({
-        where: { id, status: current.status },
+        where: { id, status: existing.status },
         data: taskFields as Prisma.TaskUncheckedUpdateManyInput,
       });
       if (saved.count === 0) {
         const now = await tx.task.findUnique({ where: { id }, select: { status: true } });
-        throw new AppError(
-          now ? `This task changed meanwhile (it is now ${now.status}) - reload and try again` : 'Task not found',
-          now ? 409 : 404,
-        );
+        if (!now) throw new AppError('Task not found', 404);
+        throw changedMeanwhile(now.status);
       }
     }
     if (depsChanged) {

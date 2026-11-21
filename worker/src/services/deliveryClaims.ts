@@ -123,3 +123,65 @@ export async function stillOwnedBy(taskId: string, ownerId: string, status: stri
   const t = await prisma.task.findUnique({ where: { id: taskId }, select: { status: true, assignedUserId: true } });
   return !!t && t.status === status && t.assignedUserId === ownerId;
 }
+
+// ── Release Management notices for a task with no owner (task_alerts row) ───
+// The notice ("due but no owner") and its one reminder use the same claim columns,
+// with a marker instead of a user id. Same guarantees as above.
+
+export type ManagerNotice = 'notice' | 'reminder';
+const MARKER: Record<ManagerNotice, string> = { notice: 'release-manager:no-owner', reminder: 'release-manager:reminder' };
+
+/**
+ * Notice: granted while Release Management hasn't been told (status not NO_OWNER).
+ * Reminder: granted after the notice, while no reminder has been sent.
+ * Both only while the task is still waiting with no owner.
+ */
+export async function claimManagerNotice(taskId: string, which: ManagerNotice, recipient: string): Promise<Date | null> {
+  if (which === 'notice') {
+    await prisma.taskAlert.createMany({ data: [{ taskId, status: 'SENDING', recipient }], skipDuplicates: true });
+  }
+  const marker = MARKER[which];
+  const rows = await prisma.$queryRaw<Array<{ claimed_at: Date }>>`
+    UPDATE task_alerts a
+       SET claim_user_id = ${marker}, claimed_at = now(), updated_at = now()
+     WHERE a.task_id = ${taskId}
+       AND (${which} = 'notice' AND a.status <> 'NO_OWNER'
+            OR ${which} = 'reminder' AND a.status = 'NO_OWNER' AND a.reminder_sent_at IS NULL)
+       AND (a.claim_user_id IS NULL OR a.claimed_at < now() - make_interval(secs => ${LEASE_SECONDS}))
+       AND EXISTS (SELECT 1 FROM tasks t WHERE t.id = a.task_id AND t.assigned_user_id IS NULL AND t.status IN ('Pending', 'Triggered'))
+    RETURNING a.claimed_at`;
+  return rows[0]?.claimed_at ?? null;
+}
+
+export async function whyManagerNoticeRefused(taskId: string, which: ManagerNotice): Promise<'already_sent' | 'owner_assigned' | 'busy'> {
+  const [alert, task] = await Promise.all([
+    prisma.taskAlert.findUnique({ where: { taskId }, select: { status: true, reminderSentAt: true } }),
+    prisma.task.findUnique({ where: { id: taskId }, select: { status: true, assignedUserId: true } }),
+  ]);
+  if (!task || task.assignedUserId || !['Pending', 'Triggered'].includes(task.status)) return 'owner_assigned';
+  if (which === 'notice' && alert?.status === 'NO_OWNER') return 'already_sent';
+  if (which === 'reminder' && (alert?.status !== 'NO_OWNER' || alert.reminderSentAt)) return 'already_sent';
+  return 'busy';
+}
+
+/** Record the notice / reminder as sent (only the claim holder can). */
+export async function completeManagerNotice(taskId: string, which: ManagerNotice, claimedAt: Date, recipient: string): Promise<boolean> {
+  const marker = MARKER[which];
+  const n = which === 'notice'
+    ? await prisma.$executeRaw`
+        UPDATE task_alerts SET status = 'NO_OWNER', recipient = ${recipient}, sent_at = now(), reminder_sent_at = NULL,
+               claim_user_id = NULL, claimed_at = NULL, updated_at = now()
+         WHERE task_id = ${taskId} AND claim_user_id = ${marker} AND claimed_at = ${claimedAt}`
+    : await prisma.$executeRaw`
+        UPDATE task_alerts SET reminder_sent_at = now(), claim_user_id = NULL, claimed_at = NULL, updated_at = now()
+         WHERE task_id = ${taskId} AND claim_user_id = ${marker} AND claimed_at = ${claimedAt}`;
+  return n === 1;
+}
+
+/** Give the claim back after a failed send, so the retry can take it. */
+export async function releaseManagerNotice(taskId: string, which: ManagerNotice, claimedAt: Date): Promise<void> {
+  const marker = MARKER[which];
+  await prisma.$executeRaw`
+    UPDATE task_alerts SET claim_user_id = NULL, claimed_at = NULL, updated_at = now()
+     WHERE task_id = ${taskId} AND claim_user_id = ${marker} AND claimed_at = ${claimedAt}`;
+}

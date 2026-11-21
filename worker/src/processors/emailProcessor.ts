@@ -145,12 +145,45 @@ async function noOwnerNotice(task: AlertTask & { status: string }, log: typeof l
     log.info('Task has an owner now (or moved on) — no notice needed');
     return { status: 'skipped', reason: 'owner_assigned' };
   }
-  const existing = await prisma.taskAlert.findUnique({ where: { taskId: task.id } });
-  if (existing?.status === 'NO_OWNER') return { status: 'skipped', reason: 'already_alerted' };
-  // Send first; record only once it went out. A failed send throws → BullMQ retries.
-  await notifyManager(task, 'no_owner');
-  await recordAlert(task.id, { status: 'NO_OWNER', recipient: config.alerts.releaseManager, sentAt: new Date(), reminderSentAt: null });
-  await audit(task.id, 'ALERT_NO_OWNER', `due but no owner — held, release manager told (${config.alerts.releaseManager})`);
+  return sendManagerNotice(task, 'notice', 'ALERT_NO_OWNER', `due but no owner — held, release manager told (${config.alerts.releaseManager})`, log);
+}
+
+/**
+ * Release Management notice (no owner) or its one reminder, sent at most once:
+ * claim (atomic, 5-min lease) → send → record. A failed send releases the claim and
+ * throws, so BullMQ retries; a live claim held by another worker makes this job retry
+ * later; a crashed worker's claim expires. If the email went out but recording it
+ * fails, the error is logged and not retried (a retry would send it again).
+ */
+async function sendManagerNotice(
+  task: AlertTask,
+  which: claims.ManagerNotice,
+  auditAction: string,
+  auditText: string,
+  log: typeof logger,
+): Promise<EmailProcessorResult> {
+  const to = config.alerts.releaseManager;
+  const claimedAt = await claims.claimManagerNotice(task.id, which, to);
+  if (!claimedAt) {
+    const why = await claims.whyManagerNoticeRefused(task.id, which);
+    if (why === 'busy') throw new claims.ClaimBusyError('Release Management notice');
+    log.info({ why }, 'Release Management notice not needed');
+    return { status: 'skipped', reason: why === 'already_sent' ? (which === 'notice' ? 'already_alerted' : 'already_reminded') : why };
+  }
+  try {
+    await notifyManager(task, which === 'notice' ? 'no_owner' : 'no_owner_reminder');
+  } catch (err) {
+    await claims.releaseManagerNotice(task.id, which, claimedAt);
+    throw err;
+  }
+  try {
+    if (!(await claims.completeManagerNotice(task.id, which, claimedAt, to))) {
+      log.warn('Notice sent, but the claim had expired and was taken over — a repeat is possible');
+    }
+  } catch (err: unknown) {
+    log.error({ err: err instanceof Error ? err.message : String(err) }, 'Notice sent but could not be recorded — not retrying');
+  }
+  await audit(task.id, auditAction, auditText);
   return { status: 'sent' };
 }
 
@@ -163,13 +196,7 @@ async function noOwnerReminder(task: AlertTask & { status: string }, log: typeof
     log.info('Owner assigned (or task moved on) — no reminder');
     return { status: 'skipped', reason: 'owner_assigned' };
   }
-  const existing = await prisma.taskAlert.findUnique({ where: { taskId: task.id } });
-  if (existing?.status !== 'NO_OWNER' || existing.reminderSentAt) return { status: 'skipped', reason: 'already_reminded' };
-  // Send first; record only once it went out. A failed send throws → BullMQ retries.
-  await notifyManager(task, 'no_owner_reminder');
-  await prisma.taskAlert.update({ where: { taskId: task.id }, data: { reminderSentAt: new Date() } });
-  await audit(task.id, 'ALERT_NO_OWNER_REMINDER', `still no owner — release manager reminded (${config.alerts.releaseManager})`);
-  return { status: 'sent' };
+  return sendManagerNotice(task, 'reminder', 'ALERT_NO_OWNER_REMINDER', `still no owner — release manager reminded (${config.alerts.releaseManager})`, log);
 }
 
 /**
@@ -198,10 +225,9 @@ async function sendStartAlert(job: Job<EmailJobPayload>, task: AlertTask, log: t
   }
 
   if (!task.assignedUser) {
-    await recordAlert(taskId, { status: 'NO_OWNER', recipient: config.alerts.releaseManager });
-    await audit(taskId, 'ALERT_NO_OWNER', `no owner — release manager told (${config.alerts.releaseManager})`);
-    await tellManager(task, 'no_owner');
-    return { status: 'skipped', reason: 'no_owner' };
+    // Same as the scheduler's no-owner notice: sent once, recorded only after it went out.
+    const r = await sendManagerNotice(task, 'notice', 'ALERT_NO_OWNER', `no owner — release manager told (${config.alerts.releaseManager})`, log);
+    return r.status === 'sent' ? { status: 'skipped', reason: 'no_owner' } : r;
   }
 
   const to = task.assignedUser.email;

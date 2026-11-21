@@ -55,6 +55,50 @@ async function releaseTickLock(token: string): Promise<void> {
   await redis.eval(RELEASE_IF_OWNER, 1, TICK_LOCK_KEY, token);
 }
 
+/**
+ * Scheduler status move, only if the task still has the status it was read with
+ * (someone may have marked it N/A, acknowledged it, etc. meanwhile). The history
+ * entry is written in the same transaction, only when the move happened.
+ * Returns false when the task had changed (nothing is saved).
+ */
+export async function moveStatus(taskId: string, from: string, to: string): Promise<boolean> {
+  return prisma.$transaction(async (tx) => {
+    const moved = await tx.task.updateMany({ where: { id: taskId, status: from }, data: { status: to } });
+    if (moved.count === 0) {
+      logger.info({ taskId, from, to }, 'Scheduler move skipped — task changed meanwhile');
+      return false;
+    }
+    await tx.auditLog.create({ data: { taskId, action: 'UPDATED', field: 'status', oldValue: from, newValue: to } });
+    return true;
+  });
+}
+
+/**
+ * Ready (Triggered) tasks whose start-time alert was lost and must be queued again
+ * (see phase 4 of tick). Exported for the integration test.
+ */
+export async function findLostStartAlerts(now: Date): Promise<Array<{ task_id: string; owner_id: string }>> {
+  const leaseCutoff = new Date(now.getTime() - NOTIFY_LEASE_MS);
+  return prisma.$queryRaw<Array<{ task_id: string; owner_id: string }>>`
+    SELECT t.id AS task_id, t.assigned_user_id AS owner_id
+      FROM tasks t
+      JOIN projects p ON p.id = t.project_id
+      LEFT JOIN task_alerts a ON a.task_id = t.id
+     WHERE t.status = 'Triggered' AND p.start_alerts_enabled AND t.assigned_user_id IS NOT NULL
+       AND (
+         (a.task_id IS NULL
+            AND t.updated_at < ${leaseCutoff}
+            AND t.updated_at > ${new Date(now.getTime() - 24 * 3600_000)})
+         OR
+         (a.task_id IS NOT NULL
+            AND NOT (t.assigned_user_id = ANY(a.notified_user_ids))
+            AND a.status IN ('SENDING', 'RETRYING', 'SENT')
+            AND (a.claim_user_id IS NULL OR a.claimed_at < ${leaseCutoff})
+            AND a.updated_at < ${leaseCutoff})
+       )
+     LIMIT 200`;
+}
+
 export async function tick(): Promise<void> {
   if (running) {
     logger.warn('Scheduler tick skipped — previous tick still running');
@@ -96,21 +140,10 @@ export async function tick(): Promise<void> {
       try {
         const depCheck = await canTaskExecute(task.id);
         if (depCheck.executable) {
-          await prisma.task.update({
-            where: { id: task.id },
-            data: { status: 'Pending' },
-          });
-          await prisma.auditLog.create({
-            data: {
-              taskId: task.id,
-              action: 'UPDATED',
-              field: 'status',
-              oldValue: 'Blocked',
-              newValue: 'Pending',
-            },
-          });
-          unblocked++;
-          logger.info({ taskId: task.id }, 'Task unblocked → Pending');
+          if (await moveStatus(task.id, 'Blocked', 'Pending')) {
+            unblocked++;
+            logger.info({ taskId: task.id }, 'Task unblocked → Pending');
+          }
         }
       } catch (err: unknown) {
         stats.errors++;
@@ -164,24 +197,13 @@ export async function tick(): Promise<void> {
           enqueued++;
         } else {
           // Deps not met → mark Blocked
-          await prisma.task.update({
-            where: { id: task.id },
-            data: { status: 'Blocked' },
-          });
-          await prisma.auditLog.create({
-            data: {
-              taskId: task.id,
-              action: 'UPDATED',
-              field: 'status',
-              oldValue: 'Pending',
-              newValue: 'Blocked',
-            },
-          });
-          blocked++;
-          logger.info(
-            { taskId: task.id, blockedBy: depResult?.blockingDepIds },
-            'Task blocked — dependencies not met'
-          );
+          if (await moveStatus(task.id, 'Pending', 'Blocked')) {
+            blocked++;
+            logger.info(
+              { taskId: task.id, blockedBy: depResult?.blockingDepIds },
+              'Task blocked — dependencies not met'
+            );
+          }
         }
       } catch (err: unknown) {
         stats.errors++;
@@ -245,24 +267,7 @@ export async function tick(): Promise<void> {
     //     alerts existed) don't get a surprise email.
     // Queue a fresh job; the worker's claim still prevents a duplicate.
     // FAILED / BLOCKED_DOMAIN / NO_OWNER are final.
-    const lost = await prisma.$queryRaw<Array<{ task_id: string; owner_id: string }>>`
-      SELECT t.id AS task_id, t.assigned_user_id AS owner_id
-        FROM tasks t
-        JOIN projects p ON p.id = t.project_id
-        LEFT JOIN task_alerts a ON a.task_id = t.id
-       WHERE t.status = 'Triggered' AND p.start_alerts_enabled AND t.assigned_user_id IS NOT NULL
-         AND (
-           (a.task_id IS NULL
-              AND t.updated_at < ${leaseCutoff}
-              AND t.updated_at > ${new Date(now.getTime() - 24 * 3600_000)})
-           OR
-           (a.task_id IS NOT NULL
-              AND NOT (t.assigned_user_id = ANY(a.notified_user_ids))
-              AND a.status IN ('SENDING', 'RETRYING', 'SENT')
-              AND (a.claim_user_id IS NULL OR a.claimed_at < ${leaseCutoff})
-              AND a.updated_at < ${leaseCutoff})
-         )
-       LIMIT 200`;
+    const lost = await findLostStartAlerts(now);
     const round = String(Math.floor(now.getTime() / NOTIFY_LEASE_MS));
     for (const row of lost) {
       try {

@@ -12,6 +12,8 @@ export interface FakeState {
   alert: Row | null;
   /** What the processor's first `findUnique({ include })` returns (the task as loaded). */
   loaded: () => Row;
+  /** Make the "record it as sent" step fail (email went out, database write fails). */
+  failRecord?: boolean;
 }
 
 function matches(row: Row, where: Row): boolean {
@@ -58,8 +60,21 @@ export function installFakeDb(prisma: any, state: FakeState) {
   def('auditLog', { create: async () => ({}) });
 
   // claimStartAlert: values = [ownerId, to, taskId, ownerId, leaseSeconds, ownerId]
-  def('$queryRaw', async (_s: TemplateStringsArray, ownerId: string, to: string) => {
+  // claimManagerNotice: values = [marker, taskId, which, which, leaseSeconds]
+  def('$queryRaw', async (q: TemplateStringsArray, ownerId: string, to: string, ...rest: any[]) => {
     await tick();
+    if (q.join('?').includes('reminder_sent_at IS NULL')) {
+      const marker = ownerId;
+      const which = rest[0];
+      const a = state.alert!;
+      const t = state.task;
+      const free = a.claimUserId == null || a.claimedAt < new Date(Date.now() - LEASE_MS);
+      const due = which === 'notice' ? a.status !== 'NO_OWNER' : a.status === 'NO_OWNER' && a.reminderSentAt == null;
+      if (!free || !due || t.assignedUserId != null || !['Pending', 'Triggered'].includes(t.status)) return [];
+      const now = new Date();
+      Object.assign(a, { claimUserId: marker, claimedAt: now });
+      return [{ claimed_at: now }];
+    }
     const a = state.alert!;
     const t = state.task;
     const free = a.claimUserId === null || a.claimedAt < new Date(Date.now() - LEASE_MS);
@@ -81,7 +96,23 @@ export function installFakeDb(prisma: any, state: FakeState) {
       Object.assign(a, { status: 'SENT', sentAt: new Date(), messageId, attempts, claimUserId: null, claimedAt: null });
       return 1;
     }
-    // releaseStartAlert: [taskId, ownerId, claimedAt]
+    if (sql.includes("status = 'NO_OWNER'")) {
+      // completeManagerNotice (notice): [recipient, taskId, marker, claimedAt]
+      if (state.failRecord) throw new Error('database unavailable');
+      const [recipient, , marker, claimedAt] = v;
+      if (a.claimUserId !== marker || a.claimedAt?.getTime() !== claimedAt.getTime()) return 0;
+      Object.assign(a, { status: 'NO_OWNER', recipient, sentAt: new Date(), reminderSentAt: null, claimUserId: null, claimedAt: null });
+      return 1;
+    }
+    if (sql.includes('reminder_sent_at = now()')) {
+      // completeManagerNotice (reminder): [taskId, marker, claimedAt]
+      if (state.failRecord) throw new Error('database unavailable');
+      const [, marker, claimedAt] = v;
+      if (a.claimUserId !== marker || a.claimedAt?.getTime() !== claimedAt.getTime()) return 0;
+      Object.assign(a, { reminderSentAt: new Date(), claimUserId: null, claimedAt: null });
+      return 1;
+    }
+    // releaseStartAlert / releaseManagerNotice: [taskId, ownerId or marker, claimedAt]
     const [, ownerId, claimedAt] = v;
     if (a.claimUserId !== ownerId || a.claimedAt?.getTime() !== claimedAt.getTime()) return 0;
     Object.assign(a, { claimUserId: null, claimedAt: null });

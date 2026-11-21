@@ -91,7 +91,7 @@ Scheduler runs in API process every 60s. Phase 1: unblock Blocked→Pending. Pha
 - **Email:** Nodemailer (SMTP or JSON mock). HMAC-SHA256 token, 7-day expiry. Rate limited 15/min/IP.
 - **Auth:** JWT (24h), stored in localStorage, Axios Bearer interceptor. 401 clears token → login redirect. The role is read from the database on every request (not from the JWT), so a role change applies at once.
 - **Email links (acknowledge / complete):** HMAC token (not JWT) that must name the current owner (`uid`) and the link type (`kind`: `ack` for the start-time email, `complete` for the completion email; one can't be used on the other's page). The confirm pages send it in the `X-Link-Token` header (GET) or the POST body, never in the API URL; Nginx logs paths without query strings. The status change is one conditional update, so double clicks save once.
-- **Email delivery (start alerts + completion email):** before sending, the worker claims the email with one conditional UPDATE (`task_alerts.claim_user_id/claimed_at`, `tasks.completion_email_status/claimed_at`). The claim is granted only if the task is still in the right state and still owned by that person. An email is recorded as sent only after the provider accepted it; a failed send releases the claim. A claim older than 5 min (crashed worker) can be taken over, and the scheduler re-queues such emails. Guarantee: at-least-once with duplicate suppression (see `worker/src/services/deliveryClaims.ts`).
+- **Email delivery (start alerts + completion email):** before sending, the worker claims the email with one conditional UPDATE (`task_alerts.claim_user_id/claimed_at`, `tasks.completion_email_status/claimed_at`). The claim is granted only if the task is still in the right state and still owned by that person. An email is recorded as sent only after the provider accepted it; a failed send releases the claim. A claim older than 5 min (crashed worker) can be taken over, and the scheduler re-queues such emails. Guarantee: at-least-once with duplicate suppression (see `worker/src/services/deliveryClaims.ts`). The Release Management no-owner notice and its reminder use the same claim (marker instead of a user id): sent first, recorded after.
 - **Permissions:** cached per API instance, keyed by `permission_version` (a trigger bumps it on any change to `role_permissions`), so changes apply on the next request on every instance.
 - **Concurrency:** plan changes (create, times/owner/dependencies, delete) run their checks and save in one transaction holding a per-project advisory lock. CR moves, CAB decisions and edits are conditional updates (409 if someone else changed the CR first). Each scheduler tick takes a short Redis lock, so several API instances don't run it at once.
 
@@ -121,7 +121,7 @@ Prisma binary targets include `linux-musl-openssl-3.0.x` for Alpine.
 ```bash
 # Local dev
 cd backend && npm run dev          # API on :3002
-cd worker && npm run dev           # Worker
+cd worker && npm run dev           # Worker (generates its Prisma client from backend/prisma first)
 cd frontend && npm start           # Frontend on :3000
 cd backend && npx prisma studio    # DB browser on :5555
 cd backend && npm run db:seed      # Seed 2 projects, 5 tasks
