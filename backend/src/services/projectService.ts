@@ -11,7 +11,8 @@ export async function list(filters: ProjectFilterParams = {}): Promise<Paginated
 
   const [projects, total] = await Promise.all([
     prisma.project.findMany({
-      orderBy: { createdAt: 'asc' },
+      // id breaks ties (projects created in the same millisecond), so paging never skips or repeats one.
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
       skip,
       take: limit,
     }),
