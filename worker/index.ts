@@ -4,8 +4,10 @@ import prisma from './src/config/prisma';
 import { taskWorker } from './src/queues/taskQueue';
 import { emailWorker } from './src/queues/emailQueue';
 import * as emailProducer from './src/services/emailProducer';
+import { startHeartbeat } from './src/health';
 
 logger.info('Tilli-go worker started');
+startHeartbeat([taskWorker, emailWorker]);
 logger.info(
   { queues: ['task-queue', 'email-queue'] },
   'Listening for jobs'
