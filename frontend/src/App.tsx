@@ -4,6 +4,7 @@ import MainLayout from './components/layout/MainLayout';
 import Login from './components/auth/Login';
 import SignUp from './components/auth/SignUp';
 import AuthCallback from './components/auth/AuthCallback';
+import AdminPage from './modules/admin/AdminPage';
 import ProtectedRoute from './components/auth/ProtectedRoute';
 import LandingPage from './components/landing/LandingPage';
 import Dashboard from './components/dashboard/Dashboard';
@@ -12,6 +13,10 @@ import Profile from './components/profile/Profile';
 import Projects from './components/projects/Projects';
 import AcknowledgePage from './components/acknowledge/AcknowledgePage';
 import CompletePage from './components/acknowledge/CompletePage';
+import ChangeRequestList from './modules/changeRequests/ChangeRequestList';
+import NewChangeRequest from './modules/changeRequests/NewChangeRequest';
+import ChangeRequestDetail from './modules/changeRequests/ChangeRequestDetail';
+import Timeline from './modules/cutover/Timeline';
 import ErrorBoundary from './components/ui/ErrorBoundary';
 import ToastContainer from './components/ui/Toast';
 import { projectService } from './services/projectService';
@@ -118,9 +123,14 @@ function App() {
             <Route element={<ProtectedRoute />}>
               <Route element={<MainLayout />}>
                 <Route path="/dashboard" element={<Dashboard />} />
+                <Route path="/change-requests" element={<ChangeRequestList />} />
+                <Route path="/change-requests/new" element={<NewChangeRequest />} />
+                <Route path="/change-requests/:id" element={<ChangeRequestDetail />} />
                 <Route path="/tasks" element={<TaskGrid />} />
+                <Route path="/timeline" element={<Timeline />} />
                 <Route path="/projects" element={<Projects />} />
                 <Route path="/profile" element={<Profile />} />
+                <Route path="/admin" element={<AdminPage />} />
               </Route>
             </Route>
           </Routes>

@@ -1,4 +1,5 @@
 import React, { useRef } from 'react';
+import tilliLogo from '../../assets/tilli-logo.png';
 import { Link } from 'react-router-dom';
 import { motion, useInView, type Variants } from 'framer-motion';
 
@@ -58,8 +59,8 @@ interface Step {
 
 const features: Feature[] = [
   {
-    title: 'Task Orchestration',
-    desc: 'Create, assign, and schedule deployment tasks with an Excel-like grid interface.',
+    title: 'Cutover tasks',
+    desc: 'Owners, start and end times, and notes for every step of the go-live.',
     icon: (
       <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
@@ -68,8 +69,8 @@ const features: Feature[] = [
     ),
   },
   {
-    title: 'Dependency Management',
-    desc: 'Define task dependencies with automatic cycle detection and blocking resolution.',
+    title: 'Dependencies',
+    desc: 'A task waits until the steps before it are done. Loops are rejected.',
     icon: (
       <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
@@ -78,8 +79,8 @@ const features: Feature[] = [
     ),
   },
   {
-    title: 'Email Notifications',
-    desc: 'Automatic email alerts with secure one-click acknowledgement links.',
+    title: 'Start-time alerts',
+    desc: 'The owner gets an email when their task can start and confirms with one click.',
     icon: (
       <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
@@ -88,8 +89,8 @@ const features: Feature[] = [
     ),
   },
   {
-    title: 'Real-time Dashboard',
-    desc: 'Live overview of deployment status, task progress, and team activity.',
+    title: 'Dashboard',
+    desc: 'Where every task in the plan stands.',
     icon: (
       <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5}
@@ -100,9 +101,9 @@ const features: Feature[] = [
 ];
 
 const steps: Step[] = [
-  { title: 'Create Tasks', desc: 'Add deployment tasks with schedules, teams, and descriptions.' },
-  { title: 'Set Dependencies', desc: 'Link tasks together so they execute in the right order.' },
-  { title: 'Auto-Orchestrate', desc: 'The scheduler triggers tasks, sends emails, and tracks completion.' },
+  { title: 'Raise the change', desc: 'Create a change request and get it approved.' },
+  { title: 'Plan the cutover', desc: 'Add the tasks, owners, times and what each one waits for.' },
+  { title: 'Run it', desc: 'Each task starts on time and its owner is emailed.' },
 ];
 
 /* ─── main component ─────────────────────────────────────────────────── */
@@ -114,19 +115,22 @@ export default function LandingPage() {
     <div className="min-h-screen bg-white">
       {/* ── Navbar ──────────────────────────────────────────────────── */}
       <motion.nav
-        className="fixed top-0 left-0 right-0 z-50 backdrop-blur-md bg-white/80 border-b border-stone-100"
+        className="fixed top-0 left-0 right-0 z-50 backdrop-blur-md bg-white/95 border-b border-border"
         initial={{ y: -80 }}
         animate={{ y: 0 }}
         transition={{ duration: 0.6, ease: EASE_OUT }}
       >
         <div className="flex items-center justify-between px-8 py-4 max-w-6xl mx-auto">
           <motion.span
-            className="text-xl font-bold text-stone-900 tracking-tight"
+            className="flex items-center gap-2 text-xl font-bold text-text-primary tracking-tight"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             transition={{ delay: 0.3 }}
           >
-            Deploy<span className="text-teal-700">Flow</span>
+            {/* the official Tilli mark (left part of the logo image) */}
+            <span aria-hidden="true" className="inline-block h-7 w-[26px] bg-no-repeat bg-left"
+              style={{ backgroundImage: `url(${tilliLogo})`, backgroundSize: 'auto 100%' }} />
+            Tilli-go
           </motion.span>
           <motion.div
             className="flex items-center gap-3"
@@ -136,7 +140,7 @@ export default function LandingPage() {
           >
             {isLoggedIn ? (
               <Link
-                to="/dashboard"
+                to="/change-requests"
                 className="px-4 py-2 bg-primary text-white text-sm font-medium rounded-lg hover:bg-primary-hover transition-colors cursor-pointer focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2"
               >
                 Go to Dashboard
@@ -145,7 +149,7 @@ export default function LandingPage() {
               <>
                 <Link
                   to="/login"
-                  className="px-4 py-2 text-sm font-medium text-stone-700 hover:text-stone-900 transition-colors cursor-pointer"
+                  className="px-4 py-2 text-sm font-medium text-text-secondary hover:text-text-primary transition-colors cursor-pointer"
                 >
                   Login
                 </Link>
@@ -163,7 +167,7 @@ export default function LandingPage() {
 
       {/* ── Hero ────────────────────────────────────────────────────── */}
       <section
-        className="relative min-h-screen flex items-center justify-center overflow-hidden bg-gradient-to-br from-stone-900 via-stone-800 to-teal-900"
+        className="relative min-h-screen flex items-center justify-center overflow-hidden bg-[linear-gradient(135deg,#0D1B36_0%,#13285A_55%,#1E3FA8_100%)]"
       >
         <div
           className="relative z-10 max-w-5xl mx-auto px-8 pt-24 pb-20 text-center"
@@ -175,8 +179,8 @@ export default function LandingPage() {
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.2, duration: 0.6 }}
           >
-            <span className="text-sm text-stone-300 font-medium">
-              Deployment Orchestration Platform
+            <span className="text-sm text-slate-200 font-medium">
+              Change and cutover management
             </span>
           </motion.div>
 
@@ -187,20 +191,19 @@ export default function LandingPage() {
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.35, duration: 0.7, ease: EASE_OUT }}
           >
-            Deploy with confidence,
+            Change requests and cutovers,
             <br />
-            not spreadsheets
+            in one place
           </motion.h1>
 
           {/* Subheading */}
           <motion.p
-            className="mt-6 text-lg sm:text-xl text-stone-300 max-w-2xl mx-auto leading-relaxed"
+            className="mt-6 text-lg sm:text-xl text-slate-200 max-w-2xl mx-auto leading-relaxed"
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.55, duration: 0.6 }}
           >
-            Replace fragile spreadsheets with an automated, event-driven platform.
-            Manage tasks, resolve dependencies, and track deployments in real time.
+            Approve changes, plan the cutover step by step, and tell each owner when their task can start.
           </motion.p>
 
           {/* CTAs */}
@@ -212,8 +215,8 @@ export default function LandingPage() {
           >
             {isLoggedIn ? (
               <Link
-                to="/dashboard"
-                className="group px-8 py-3.5 bg-white text-teal-800 font-semibold rounded-xl hover:bg-teal-50 transition-all duration-300 cursor-pointer shadow-md hover:shadow-lg hover:-translate-y-0.5"
+                to="/change-requests"
+                className="group px-8 py-3.5 bg-white text-primary font-semibold rounded-xl hover:bg-primary-light transition-all duration-300 cursor-pointer shadow-md hover:shadow-lg hover:-translate-y-0.5"
               >
                 Go to Dashboard
                 <span className="inline-block ml-2 transition-transform duration-300 group-hover:translate-x-1">
@@ -224,7 +227,7 @@ export default function LandingPage() {
               <>
                 <Link
                   to="/signup"
-                  className="group px-8 py-3.5 bg-white text-teal-800 font-semibold rounded-xl hover:bg-teal-50 transition-all duration-300 cursor-pointer shadow-md hover:shadow-lg hover:-translate-y-0.5"
+                  className="group px-8 py-3.5 bg-white text-primary font-semibold rounded-xl hover:bg-primary-light transition-all duration-300 cursor-pointer shadow-md hover:shadow-lg hover:-translate-y-0.5"
                 >
                   Get Started Free
                   <span className="inline-block ml-2 transition-transform duration-300 group-hover:translate-x-1">
@@ -260,17 +263,10 @@ export default function LandingPage() {
             <motion.h2
               variants={fadeUp}
               custom={1}
-              className="mt-3 text-3xl sm:text-4xl font-bold text-stone-900 tracking-tight"
+              className="mt-3 text-3xl sm:text-4xl font-bold text-text-primary tracking-tight"
             >
-              Everything you need
+              What's in it
             </motion.h2>
-            <motion.p
-              variants={fadeUp}
-              custom={2}
-              className="mt-4 text-stone-500 max-w-lg mx-auto"
-            >
-              Powerful features to manage your deployment pipeline end-to-end.
-            </motion.p>
           </AnimatedSection>
 
           <AnimatedSection className="mt-16 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-8">
@@ -284,8 +280,8 @@ export default function LandingPage() {
                 <div className="w-12 h-12 rounded-xl bg-primary-light text-primary flex items-center justify-center group-hover:bg-primary-muted transition-colors duration-300">
                   {f.icon}
                 </div>
-                <h3 className="mt-4 font-semibold text-stone-900">{f.title}</h3>
-                <p className="mt-2 text-sm text-stone-500 leading-relaxed">{f.desc}</p>
+                <h3 className="mt-4 font-semibold text-text-primary">{f.title}</h3>
+                <p className="mt-2 text-sm text-text-secondary leading-relaxed">{f.desc}</p>
               </motion.div>
             ))}
           </AnimatedSection>
@@ -293,7 +289,7 @@ export default function LandingPage() {
       </section>
 
       {/* ── How It Works ────────────────────────────────────────────── */}
-      <section className="py-24 bg-stone-50">
+      <section className="py-24 bg-surface-alt">
         <div className="max-w-4xl mx-auto px-8">
           <AnimatedSection className="text-center">
             <motion.p
@@ -306,15 +302,15 @@ export default function LandingPage() {
             <motion.h2
               variants={fadeUp}
               custom={1}
-              className="mt-3 text-3xl sm:text-4xl font-bold text-stone-900 tracking-tight"
+              className="mt-3 text-3xl sm:text-4xl font-bold text-text-primary tracking-tight"
             >
-              Three simple steps
+              How a release runs
             </motion.h2>
           </AnimatedSection>
 
           <AnimatedSection className="mt-16 grid grid-cols-1 sm:grid-cols-3 gap-8 relative">
             {/* connector line (desktop) */}
-            <div className="hidden sm:block absolute top-8 left-[calc(16.67%+24px)] right-[calc(16.67%+24px)] h-px bg-gradient-to-r from-teal-200 via-teal-300 to-teal-200" />
+            <div className="hidden sm:block absolute top-8 left-[calc(16.67%+24px)] right-[calc(16.67%+24px)] h-px bg-brand-gradient opacity-40" />
 
             {steps.map((s, i) => (
               <motion.div
@@ -324,12 +320,12 @@ export default function LandingPage() {
                 className="relative text-center"
               >
                 <div
-                  className="relative z-10 mx-auto w-14 h-14 rounded-2xl bg-teal-700 text-white flex items-center justify-center text-lg font-bold shadow-md"
+                  className="relative z-10 mx-auto w-14 h-14 rounded-2xl bg-primary text-white flex items-center justify-center text-lg font-bold shadow-md"
                 >
                   {i + 1}
                 </div>
-                <h3 className="mt-5 font-semibold text-stone-900">{s.title}</h3>
-                <p className="mt-2 text-sm text-stone-500 leading-relaxed">{s.desc}</p>
+                <h3 className="mt-5 font-semibold text-text-primary">{s.title}</h3>
+                <p className="mt-2 text-sm text-text-secondary leading-relaxed">{s.desc}</p>
               </motion.div>
             ))}
           </AnimatedSection>
@@ -342,24 +338,17 @@ export default function LandingPage() {
           <motion.h2
             variants={fadeUp}
             custom={0}
-            className="text-3xl sm:text-4xl font-bold text-stone-900 tracking-tight"
+            className="text-3xl sm:text-4xl font-bold text-text-primary tracking-tight"
           >
-            Ready to streamline your deployments?
+            Planning the next release?
           </motion.h2>
-          <motion.p
-            variants={fadeUp}
-            custom={1}
-            className="mt-4 text-stone-500 max-w-lg mx-auto"
-          >
-            Stop juggling spreadsheets. Start orchestrating with confidence.
-          </motion.p>
           <motion.div
             variants={fadeUp}
             custom={2}
             className="mt-8"
           >
             <Link
-              to={isLoggedIn ? '/dashboard' : '/signup'}
+              to={isLoggedIn ? '/change-requests' : '/signup'}
               className="inline-flex items-center gap-2 px-8 py-3.5 bg-primary text-white font-semibold rounded-xl hover:bg-primary-hover transition-all duration-300 cursor-pointer shadow-md hover:shadow-lg hover:-translate-y-0.5 focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
             >
               {isLoggedIn ? 'Go to Dashboard' : 'Get Started Free'}

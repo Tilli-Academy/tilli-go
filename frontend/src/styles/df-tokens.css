@@ -1,5 +1,6 @@
 /*
- * DeployFlow design tokens (used by the Dashboard and the top Header).
+ * Tilli-go design tokens (used by the Dashboard, the top Header and the Sidebar),
+ * in the Tilli brand: Royal Blue #315EF8, Sky Cyan #00B0FF, Dark Navy #0D1B36.
  * Status tones keep the existing meaning: Pending = amber, Triggered = blue,
  * Acknowledged = purple, Completed = green, Blocked = red.
  * "fg" is text on the tone background (all >= 6:1), "accent" is for icons
@@ -8,24 +9,27 @@
  */
 :root {
   /* surfaces */
-  --df-canvas: #f5f7fa;
+  --df-canvas: #f5f8fc;
   --df-surface: #ffffff;
   --df-surface-subtle: #f8fafc;
-  --df-surface-hover: #f3f6fa;
+  --df-surface-hover: #f1f5f9;
   --df-track: #edf0f4;
-  --df-border: #e4e8ee;
-  --df-border-strong: #cfd6e0;
+  --df-border: #e2e8f0;
+  --df-border-strong: #cbd5e1;
 
   /* text */
-  --df-text: #0f172a;
-  --df-text-2: #3f4b5e;
-  --df-text-3: #5f6c80;
+  --df-text: #0d1b36;
+  --df-text-2: #334155;
+  --df-text-3: #5b6b82; /* >= 4.5:1 on the light background */
 
-  /* brand (matches the sidebar's active blue) */
-  --df-brand: #2563eb;
-  --df-brand-strong: #1d4ed8;
-  --df-brand-soft: #eff4ff;
-  --df-brand-border: #d6e2fb;
+  /* brand (Tilli) */
+  --df-brand: #315ef8;
+  --df-brand-strong: #1f4be0;
+  --df-brand-soft: #eef3ff;
+  --df-brand-border: #d5e0fe;
+  --df-brand-cyan: #00b0ff;
+  --df-navy: #0d1b36;
+  --df-gradient: linear-gradient(100deg, #315ef8, #00b0ff);
   --df-ring: 0 0 0 2px var(--df-surface), 0 0 0 4px var(--df-brand);
 
   /* status tones */
@@ -58,6 +62,12 @@
   --df-blocked-border: #f7cfca;
   --df-blocked-accent: #d9473d;
   --df-blocked-chart: #e05a4f;
+
+  --df-na-fg: #475569;
+  --df-na-bg: #f1f5f9;
+  --df-na-border: #d7dee8;
+  --df-na-accent: #64748b;
+  --df-na-chart: #94a3b8;
 
   --df-neutral-fg: #3f4b5e;
   --df-neutral-bg: #f3f5f8;
@@ -103,6 +113,7 @@
 .df-tone-acknowledged { --tone-fg: var(--df-acknowledged-fg); --tone-bg: var(--df-acknowledged-bg); --tone-border: var(--df-acknowledged-border); --tone-accent: var(--df-acknowledged-accent); --tone-chart: var(--df-acknowledged-chart); }
 .df-tone-completed { --tone-fg: var(--df-completed-fg); --tone-bg: var(--df-completed-bg); --tone-border: var(--df-completed-border); --tone-accent: var(--df-completed-accent); --tone-chart: var(--df-completed-chart); }
 .df-tone-blocked { --tone-fg: var(--df-blocked-fg); --tone-bg: var(--df-blocked-bg); --tone-border: var(--df-blocked-border); --tone-accent: var(--df-blocked-accent); --tone-chart: var(--df-blocked-chart); }
+.df-tone-na { --tone-fg: var(--df-na-fg); --tone-bg: var(--df-na-bg); --tone-border: var(--df-na-border); --tone-accent: var(--df-na-accent); --tone-chart: var(--df-na-chart); }
 .df-tone-neutral { --tone-fg: var(--df-neutral-fg); --tone-bg: var(--df-neutral-bg); --tone-border: var(--df-neutral-border); --tone-accent: var(--df-neutral-accent); --tone-chart: var(--df-neutral-chart); }
 
 /* Visually hidden, still read by screen readers. */

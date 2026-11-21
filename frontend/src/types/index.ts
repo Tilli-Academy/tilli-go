@@ -1,6 +1,7 @@
 // ── Task statuses ────────────────────────────────────────────────────────────
 
-export type TaskStatus = 'Pending' | 'Triggered' | 'Acknowledged' | 'Completed' | 'Blocked';
+/** 'N/A' = not needed in this cutover: counts as done for dependencies, locked like Completed. */
+export type TaskStatus = 'Pending' | 'Triggered' | 'Acknowledged' | 'Completed' | 'Blocked' | 'N/A';
 
 // ── Domain models (match backend API response shapes) ────────────────────────
 
@@ -37,6 +38,11 @@ export interface Task {
   dependencies: string[];
   assignedUser: TaskAssignedUser | null;
   project: TaskProjectRef;
+  /** Optional tag: the change request (same project) this task is for */
+  changeRequestId?: string | null;
+  changeRequest?: { id: string; number: number; title: string } | null;
+  /** Start-time alert, if one has gone out for this task */
+  alert?: { status: string; recipient: string | null; sentAt: string | null; acknowledgedAt: string | null; attempts?: number } | null;
 }
 
 export interface Project {
@@ -46,7 +52,11 @@ export interface Project {
   description: string | null;
   createdAt: string;
   updatedAt: string;
+  timeZone?: string;
+  /** Change requests in this project (a project can group several). */
+  changeRequests?: { id: string; number: number; title: string }[];
 }
+
 
 export interface UserSummary {
   id: string;

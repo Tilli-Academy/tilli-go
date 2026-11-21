@@ -1,8 +1,19 @@
 import { useState, useEffect } from 'react';
-import { Outlet, useLocation } from 'react-router-dom';
+import { useLocation, useOutlet } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import Header from './Header';
 import Sidebar from './Sidebar';
+
+/**
+ * The page as it was when this route was entered. Without this, the page that is
+ * fading out renders the NEW route too, and the new page then mounts a second time
+ * (double data loads, and anything typed in the first moment is lost).
+ */
+function FrozenOutlet() {
+  const outlet = useOutlet();
+  const [frozen] = useState(outlet);
+  return frozen;
+}
 
 export default function MainLayout() {
   const location = useLocation();
@@ -60,7 +71,7 @@ export default function MainLayout() {
               transition={{ duration: 0.2, ease: 'easeInOut' }}
               className="flex-1 flex flex-col overflow-hidden"
             >
-              <Outlet />
+              <FrozenOutlet />
             </motion.div>
           </AnimatePresence>
         </main>

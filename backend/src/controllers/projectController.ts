@@ -33,6 +33,14 @@ export const create = async (req: Request, res: Response, next: NextFunction): P
   }
 };
 
+export const update = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+  try {
+    res.json(await projectService.update(req.params.id as string, req.body));
+  } catch (err) {
+    next(err);
+  }
+};
+
 export const remove = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
     await projectService.remove(req.params.id as string);

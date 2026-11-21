@@ -45,7 +45,7 @@ export default function AuthCallback() {
         );
         setState('success');
         refreshProjects().then(() => {
-          navigate('/dashboard');
+          navigate('/change-requests');
         });
       } catch {
         setState('error');

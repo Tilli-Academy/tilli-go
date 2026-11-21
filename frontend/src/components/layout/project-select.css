@@ -243,3 +243,17 @@
     transition-duration: 1ms !important;
   }
 }
+
+.dfh-ps-manage {
+  display: block;
+  width: 100%;
+  padding: 0.6rem 0.9rem;
+  border-top: 1px solid var(--df-border);
+  text-align: left;
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: var(--df-brand);
+  background: transparent;
+  cursor: pointer;
+}
+.dfh-ps-manage:hover { background: var(--df-surface-hover); }

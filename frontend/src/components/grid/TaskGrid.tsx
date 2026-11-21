@@ -2,9 +2,11 @@ import { useCallback, useRef, useMemo, useContext, useEffect } from 'react';
 import { AgGridReact } from 'ag-grid-react';
 import 'ag-grid-community/styles/ag-grid.css';
 import 'ag-grid-community/styles/ag-theme-alpine.css';
+import { usePermissions } from '../../hooks/usePermissions';
 import type { ColDef, CellValueChangedEvent, GetRowIdParams, RowClassParams } from 'ag-grid-community';
 
-import { columnDefs } from './columnDefs';
+import { buildColumnDefs } from './columnDefs';
+import { DEFAULT_TIME_ZONE } from '../../utils/zoneTime';
 import { useTaskData } from '../../hooks/useTaskData';
 import { ProjectContext } from '../../App';
 import { toast } from '../ui/Toast';
@@ -12,8 +14,14 @@ import { getErrorMessage } from '../../services/api';
 import type { Task, UpdateTaskInput } from '../../types';
 
 export default function TaskGrid() {
+  const { can } = usePermissions();
   const gridRef = useRef<AgGridReact<Task>>(null);
-  const { selectedProjectId } = useContext(ProjectContext);
+  const { selectedProjectId, projects } = useContext(ProjectContext);
+  const project = projects.find((p) => p.id === selectedProjectId);
+  // Times in the grid are shown and typed in the project's zone (named in the headers).
+  const timeZone = project?.timeZone ?? DEFAULT_TIME_ZONE;
+  const changeRequests = project?.changeRequests;
+  const columnDefs = useMemo(() => buildColumnDefs({ timeZone, changeRequests: changeRequests ?? [] }), [timeZone, changeRequests]);
   const { tasks, loading, error, addTask, updateTask, deleteTask, fetchTasks, patchTaskLocal } =
     useTaskData(selectedProjectId);
 
@@ -77,8 +85,8 @@ export default function TaskGrid() {
   /** Passed to AG Grid `context` so popup editors can update fields directly,
    *  bypassing the cellValueChanged event which can be unreliable for popups. */
   const gridContext = useMemo(
-    () => ({ applyFieldUpdate }),
-    [applyFieldUpdate]
+    () => ({ applyFieldUpdate, timeZone }),
+    [applyFieldUpdate, timeZone]
   );
 
   // ── Add Task ───────────────────────────────────────────────────────────────
@@ -147,7 +155,7 @@ export default function TaskGrid() {
     'row-status-pending':      (params: RowClassParams<Task>) => params.data?.status === 'Pending',
     'row-status-triggered':    (params: RowClassParams<Task>) => params.data?.status === 'Triggered',
     'row-status-acknowledged': (params: RowClassParams<Task>) => params.data?.status === 'Acknowledged',
-    'row-status-completed':    (params: RowClassParams<Task>) => params.data?.status === 'Completed',
+    'row-status-completed':    (params: RowClassParams<Task>) => params.data?.status === 'Completed' || params.data?.status === 'N/A',
     'row-status-blocked':      (params: RowClassParams<Task>) => params.data?.status === 'Blocked',
   }), []);
 
@@ -187,18 +195,18 @@ export default function TaskGrid() {
     <div className="flex flex-col h-full">
       {/* Toolbar */}
       <div className="flex items-center gap-2 px-3 py-2 border-b border-border bg-surface">
-        <button
+        {can('task.edit') && <button
           onClick={handleAddTask}
           className="px-3 py-1.5 min-h-touch bg-primary text-white rounded-md text-sm font-medium hover:bg-primary-hover transition-colors cursor-pointer focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
         >
           + Add Task
-        </button>
-        <button
+        </button>}
+        {can('task.delete') && <button
           onClick={handleDeleteSelected}
           className="px-3 py-1.5 min-h-touch bg-destructive text-white rounded-md text-sm font-medium hover:bg-red-700 transition-colors cursor-pointer focus-visible:ring-2 focus-visible:ring-destructive focus-visible:ring-offset-2"
         >
           Delete Selected
-        </button>
+        </button>}
         <span className="ml-auto text-xs text-text-muted">
           {tasks.length} task{tasks.length !== 1 ? 's' : ''}
         </span>

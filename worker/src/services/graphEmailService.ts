@@ -49,6 +49,7 @@ async function sendGraphRequest(
   to: string,
   subject: string,
   htmlBody: string,
+  replyTo?: string,
 ): Promise<void> {
   await axios.post(
     `https://graph.microsoft.com/v1.0/users/${fromAddress}/sendMail`,
@@ -57,6 +58,7 @@ async function sendGraphRequest(
         subject,
         body: { contentType: 'HTML', content: htmlBody },
         toRecipients: [{ emailAddress: { address: to } }],
+        ...(replyTo ? { replyTo: [{ emailAddress: { address: replyTo } }] } : {}),
       },
       saveToSentItems: false,
     },
@@ -74,6 +76,7 @@ export async function sendEmailViaGraph(
   to: string,
   subject: string,
   htmlBody: string,
+  replyTo?: string,
 ): Promise<string> {
   const fromAddress = process.env.MICROSOFT_MAIL_FROM;
 
@@ -84,14 +87,14 @@ export async function sendEmailViaGraph(
   let token = await getAppToken();
 
   try {
-    await sendGraphRequest(token, fromAddress, to, subject, htmlBody);
+    await sendGraphRequest(token, fromAddress, to, subject, htmlBody, replyTo);
   } catch (err: unknown) {
     // Retry once with a fresh token on 401 (token may have been revoked)
     if (axios.isAxiosError(err) && err.response?.status === 401) {
       logger.warn('Graph API returned 401 — refreshing token and retrying');
       clearTokenCache();
       token = await getAppToken();
-      await sendGraphRequest(token, fromAddress, to, subject, htmlBody);
+      await sendGraphRequest(token, fromAddress, to, subject, htmlBody, replyTo);
     } else {
       throw err;
     }

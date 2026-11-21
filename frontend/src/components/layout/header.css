@@ -176,3 +176,12 @@
     transition-duration: 1ms !important;
   }
 }
+
+.dfh-back {
+  margin-left: 0.75rem;
+  font-size: 0.8rem;
+  font-weight: 500;
+  color: var(--df-brand);
+  white-space: nowrap;
+}
+.dfh-back:hover { text-decoration: underline; }

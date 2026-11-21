@@ -8,7 +8,8 @@ const emailQueue = new Queue<EmailJobPayload>('email-queue', {
 });
 
 export async function addEmailJob(data: EmailJobPayload): Promise<void> {
-  const jobId = `email-${data.taskId}-${data.type || 'triggered'}`;
+  // Per owner for start alerts, so a reassigned task can email its new owner.
+  const jobId = `email-${data.taskId}-${data.type || 'triggered'}${data.ownerId ? `-${data.ownerId}` : ''}`;
 
   await emailQueue.add('send-email', data, {
     jobId,

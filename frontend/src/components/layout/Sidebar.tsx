@@ -3,14 +3,17 @@ import type React from "react";
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import {
   LayoutGridIcon,
-  LayersIcon,
-  ListChecksIcon,
+  FlagIcon,
+  CalendarIcon,
   UserIcon,
   LogOutIcon,
   ChevronLeftIcon,
+  SettingsIcon,
 } from "../dashboard/DashboardIcons";
 import type { IconProps } from "../dashboard/DashboardIcons";
 import "./sidebar.css";
+import tilliLogo from "../../assets/tilli-logo.png";
+import { usePermissions } from "../../hooks/usePermissions";
 
 interface NavItem {
   to: string;
@@ -18,12 +21,15 @@ interface NavItem {
   icon: (p: IconProps) => React.ReactElement;
 }
 
-const navItems: NavItem[] = [
+const baseItems: NavItem[] = [
+  // Change requests are the top level; a CR's tasks are opened from the CR itself.
+  { to: "/change-requests", label: "Change Requests", icon: FlagIcon },
+  { to: "/timeline", label: "Timeline", icon: CalendarIcon },
   { to: "/dashboard", label: "Dashboard", icon: LayoutGridIcon },
-  { to: "/projects", label: "Projects", icon: LayersIcon },
-  { to: "/tasks", label: "Tasks", icon: ListChecksIcon },
   { to: "/profile", label: "Profile", icon: UserIcon },
 ];
+// Shown only to users with an admin permission.
+const adminItem: NavItem = { to: "/admin", label: "Admin", icon: SettingsIcon };
 
 // Same test NavLink uses for `isActive` (case-insensitive; `end` only for /dashboard).
 // Only used to place the sliding indicator; the item styles still come from NavLink.
@@ -31,30 +37,6 @@ function isNavActive(pathname: string, to: string, end: boolean): boolean {
   const path = pathname.toLowerCase();
   const target = to.toLowerCase();
   return path === target || (!end && path.startsWith(target) && path.charAt(target.length) === "/");
-}
-
-// Brand mark: two task nodes joined by a step connector.
-function BrandGlyph() {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" aria-hidden="true" focusable="false">
-      {/* a staircase rising to an arrow: a cutover moving step by step */}
-      <path
-        d="M4 19.5h4.5V15H13v-4.5h3.5"
-        stroke="currentColor"
-        strokeWidth={2.2}
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-      <path
-        d="M14.5 5.5H20v5.5M20 5.5l-6.2 6.2"
-        stroke="currentColor"
-        strokeWidth={2.2}
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        opacity="0.85"
-      />
-    </svg>
-  );
 }
 
 interface SidebarProps {
@@ -67,6 +49,8 @@ interface SidebarProps {
 export default function Sidebar({ isCollapsed, isMobileOpen, onToggleCollapse, onCloseMobile }: SidebarProps) {
   const navigate = useNavigate();
   const { pathname } = useLocation();
+  const { can } = usePermissions();
+  const navItems = can("admin.lists") ? [...baseItems, adminItem] : baseItems;
 
   const activeIndex = navItems.findIndex((item) =>
     isNavActive(pathname, item.to, item.to === "/dashboard")
@@ -98,9 +82,8 @@ export default function Sidebar({ isCollapsed, isMobileOpen, onToggleCollapse, o
     >
       {/* Brand + Desktop Toggle */}
       <div className="dfs-brand h-14">
-        <span className="dfs-mark" aria-hidden="true">
-          <BrandGlyph />
-        </span>
+        {/* the official Tilli mark: the left part of the logo image, never redrawn */}
+        <span className="dfs-mark" aria-hidden="true" style={{ backgroundImage: `url(${tilliLogo})` }} />
         <span className="dfs-wordmark">Tilli-go</span>
         <button
           onClick={onToggleCollapse}

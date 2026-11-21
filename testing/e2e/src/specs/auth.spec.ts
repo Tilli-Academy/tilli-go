@@ -7,7 +7,7 @@ import { SHARED_AUTH_PATH, type SharedAuth } from '../global-setup';
 import * as fs from 'fs';
 
 test.describe('Authentication', () => {
-  test('signup navigates to dashboard on success', async ({ page }) => {
+  test('signup navigates to change requests on success', async ({ page }) => {
     const signup = new SignUpPage(page);
     await signup.goto();
 
@@ -15,13 +15,13 @@ test.describe('Authentication', () => {
     const name = uniqueName();
     await signup.signUp(name, email, TEST_PASSWORD);
 
-    await expect(page).toHaveURL(/#\/dashboard/, { timeout: 10_000 });
+    await expect(page).toHaveURL(/#\/change-requests/, { timeout: 10_000 });
     // Token should be stored
     const token = await page.evaluate(() => localStorage.getItem('token'));
     expect(token).toBeTruthy();
   });
 
-  test('login navigates to dashboard on success', async ({ page }) => {
+  test('login navigates to change requests on success', async ({ page }) => {
     // Register via API to avoid rate limits
     const email = uniqueEmail();
     const name = uniqueName();
@@ -31,7 +31,7 @@ test.describe('Authentication', () => {
     await login.goto();
     await login.login(email, TEST_PASSWORD);
 
-    await expect(page).toHaveURL(/#\/dashboard/, { timeout: 10_000 });
+    await expect(page).toHaveURL(/#\/change-requests/, { timeout: 10_000 });
   });
 
   test('login shows error on wrong password', async ({ page }) => {

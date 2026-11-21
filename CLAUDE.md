@@ -23,7 +23,7 @@ docker/    docker-compose.yml, *.Dockerfile, api-entrypoint.sh, nginx/nginx.conf
 
 ## Data Model
 - **User** — id, email, password, name, role
-- **Project** — id, name, code (unique), description
+- **Project** — id, name, code (unique), description, timeZone, startAlertsEnabled. Groups one or more change requests and owns the optional cutover (its tasks)
 - **Task** — id, system, taskName, description, assignedTeam, assignedUserId, plannedStartTime, plannedEndTime, actualStartTime, actualEndTime, status, notes, projectId, sequenceNumber
 - **TaskDependency** — taskId, dependsOnTaskId (unique pair)
 - **AuditLog** — taskId, action, field, oldValue, newValue, userId
@@ -33,6 +33,7 @@ docker/    docker-compose.yml, *.Dockerfile, api-entrypoint.sh, nginx/nginx.conf
 ## Task Statuses & Transitions
 `Pending → Triggered → Acknowledged → Completed` (immutable once Completed)
 `Pending ↔ Blocked` (scheduler manages based on dependency state)
+`Pending | Blocked | Triggered → N/A` — not needed in this cutover; counts as done for dependencies (all 4 checks) and is immutable like Completed
 
 **Lifecycle:** Scheduler enqueues eligible Pending tasks → Worker sets Triggered + sends email → User clicks email link → Acknowledged → User completes via grid UI.
 
@@ -56,12 +57,21 @@ docker/    docker-compose.yml, *.Dockerfile, api-entrypoint.sh, nginx/nginx.conf
 | GET/POST | /api/projects, /api/projects/:id | JWT | Project CRUD |
 | GET/POST/PUT/DELETE | /api/tasks, /api/tasks/:id | JWT | Task CRUD |
 | GET | /api/tasks/:id/dependencies | JWT | Dependency status |
-| GET | /api/acknowledge | Token | Acknowledge via email link |
+| GET | /api/acknowledge/preview | Token | Read-only task details for the confirm page |
+| POST | /api/acknowledge | Token | Acknowledge (owner clicked "Acknowledge & start") |
+| GET | /api/acknowledge | Token | Read-only (same as /preview); never acknowledges |
+| GET | /api/complete(/preview) | Token | Read-only details for the completion confirm page |
+| POST | /api/complete | Token | Complete (owner clicked "Mark as completed"; token must name the current owner) |
+| GET/PATCH | /api/alerts/projects/:id | JWT | Start-time alerts switch, status, history (see CHANGE_REQUESTS.md) |
+| GET | /api/auth/permissions | JWT | The signed-in user's permissions |
+| GET/POST/PATCH/PUT/DELETE | /api/lists | JWT | Managed dropdown lists (writes need admin.lists) |
+| * | /api/change-requests | JWT | Change requests (see CHANGE_REQUESTS.md) |
 | GET | /health | Public | Docker health check |
-| GET/POST | /api/scheduler/status, /api/scheduler/trigger | Public | Scheduler |
+| GET | /api/scheduler/status | JWT | Scheduler stats |
+| POST | /api/scheduler/trigger | JWT (`cutover.manage`) | Run the scheduler now |
 
 ## Critical Rules (non-negotiable)
-1. **Backend is source of truth** — UI blocks are cosmetic, backend enforces all rules
+1. **Backend is source of truth** — UI blocks are cosmetic, backend enforces all rules. Access is permission-based (`requirePermission('task.delete')`), never role names; see CHANGE_REQUESTS.md
 2. **No direct email from API** — only worker sends via BullMQ email-queue
 3. **4-layer dependency validation** — API middleware + service, Scheduler, Worker, Acknowledge all check independently. Cycle detection via DFS. Cross-project deps rejected.
 4. **No duplicate jobs** — deterministic jobId (`task-trigger-{taskId}`), idempotent processors
@@ -79,7 +89,11 @@ Scheduler runs in API process every 60s. Phase 1: unblock Blocked→Pending. Pha
 
 ## Email & Auth
 - **Email:** Nodemailer (SMTP or JSON mock). HMAC-SHA256 token, 7-day expiry. Rate limited 15/min/IP.
-- **Auth:** JWT (24h), stored in localStorage, Axios Bearer interceptor. 401 clears token → login redirect. Acknowledge endpoint uses HMAC token (not JWT).
+- **Auth:** JWT (24h), stored in localStorage, Axios Bearer interceptor. 401 clears token → login redirect. The role is read from the database on every request (not from the JWT), so a role change applies at once.
+- **Email links (acknowledge / complete):** HMAC token (not JWT) that must name the current owner (`uid`) and the link type (`kind`: `ack` for the start-time email, `complete` for the completion email; one can't be used on the other's page). The confirm pages send it in the `X-Link-Token` header (GET) or the POST body, never in the API URL; Nginx logs paths without query strings. The status change is one conditional update, so double clicks save once.
+- **Email delivery (start alerts + completion email):** before sending, the worker claims the email with one conditional UPDATE (`task_alerts.claim_user_id/claimed_at`, `tasks.completion_email_status/claimed_at`). The claim is granted only if the task is still in the right state and still owned by that person. An email is recorded as sent only after the provider accepted it; a failed send releases the claim. A claim older than 5 min (crashed worker) can be taken over, and the scheduler re-queues such emails. Guarantee: at-least-once with duplicate suppression (see `worker/src/services/deliveryClaims.ts`). The Release Management no-owner notice and its reminder use the same claim (marker instead of a user id): sent first, recorded after.
+- **Permissions:** cached per API instance, keyed by `permission_version` (a trigger bumps it on any change to `role_permissions`), so changes apply on the next request on every instance.
+- **Concurrency:** plan changes (create, times/owner/dependencies, delete) run their checks and save in one transaction holding a per-project advisory lock. CR moves, CAB decisions and edits are conditional updates (409 if someone else changed the CR first). Each scheduler tick takes a short Redis lock, so several API instances don't run it at once.
 
 ## Docker
 | Service | Port (Host) | Health Check |
@@ -100,14 +114,14 @@ Prisma binary targets include `linux-musl-openssl-3.0.x` for Alpine.
 - **Dashboard:** Status cards + SVG donut pie chart + recent tasks table (last 8), all project-scoped
 - **Projects page:** List with active indicator, inline create form, auto-selects new project
 - **Dependency service:** `canTaskExecute`, `assertDependenciesMet`, `wouldCreateCycle`, `setDependencies` — all enforce same-project
-- **Task service:** `ALLOWED_TRANSITIONS` map, double validation (middleware + service), audit log in transaction
+- **Task service:** `ALLOWED_TRANSITIONS` map, double validation (middleware + service), audit log in transaction. Every save is conditional on the status it was checked against (409 if it changed meanwhile); the worker's Pending → Triggered step likewise only applies while still Pending with the same owner
 - **Error handling:** ZodError → 400 with messages, AppError → custom status, else → 500
 
 ## Development Commands
 ```bash
 # Local dev
 cd backend && npm run dev          # API on :3002
-cd worker && npm run dev           # Worker
+cd worker && npm run dev           # Worker (generates its Prisma client from backend/prisma first)
 cd frontend && npm start           # Frontend on :3000
 cd backend && npx prisma studio    # DB browser on :5555
 cd backend && npm run db:seed      # Seed 2 projects, 5 tasks
@@ -123,7 +137,7 @@ DATABASE_URL="postgresql://deployflow:change-me-in-production@localhost:5438/dep
 
 ## Environment Variables
 **Required:** `DATABASE_URL`, `JWT_SECRET`, `ACK_TOKEN_SECRET`
-**Optional:** `REDIS_HOST` (localhost), `REDIS_PORT` (6379), `API_PORT` (3001), `FRONTEND_URL` (http://localhost:3004), `SMTP_HOST/PORT/USER/PASS` (mock if blank), `EMAIL_DOMAIN` (tilli.pro), `EMAIL_FROM_ADDRESS`, `EMAIL_FROM_NAME` (DeployFlow), `EMAIL_FALLBACK_TEAM` (ops), `ACK_TOKEN_EXPIRY_MS` (7 days)
+**Optional:** `REDIS_HOST` (localhost), `REDIS_PORT` (6379), `API_PORT` (3001), `FRONTEND_URL` (http://localhost:3004), `SMTP_HOST/PORT/USER/PASS` (mock if blank), `EMAIL_DOMAIN` (tilli.pro), `EMAIL_FROM_ADDRESS`, `EMAIL_FROM_NAME` (Tilli-go), `ACK_TOKEN_EXPIRY_MS` (7 days)
 **Docker-only:** `POSTGRES_PORT` (5438), `REDIS_PORT` (6383), `API_PORT` (3003), `FRONTEND_PORT` (3004)
 
 ## Migrations
@@ -131,3 +145,11 @@ DATABASE_URL="postgresql://deployflow:change-me-in-production@localhost:5438/dep
 |---|---|
 | `20260416110859_init` | User, Task, TaskDependency, AuditLog |
 | `20260417120000_add_project_support` | Project model, projectId + sequenceNumber on Task |
+| `20261116000000_add_change_requests` | ChangeRequest, ChangeEvent, ChangeAttachment |
+| `20261117000000_add_start_time_alerts` | projects.start_alerts_enabled, TaskAlert |
+| `20261118000000_add_project_time_zone` | projects.time_zone (default America/Chicago) |
+| `20261119000000_add_cr_fields_lists_permissions` | CR fields, list_values, change_products/documents/links, role_permissions |
+| `20261120000000_task_cr_tag_alert_owners` | tasks.change_request_id, task_alerts.notified_user_ids + reminder_sent_at |
+| `20261121000000_completion_email_once` | tasks.completion_email_sent_at (completion email sent once) |
+| `20261121010000_recoverable_notifications` | delivery claims: tasks.completion_email_status/claimed_at, task_alerts.claim_user_id/claimed_at |
+| `20261121020000_permission_version` | permission_version + trigger on role_permissions |

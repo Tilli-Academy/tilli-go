@@ -1,12 +1,12 @@
 import type { ICellRendererParams } from 'ag-grid-community';
-import { STATUS_BADGE_COLORS } from '../../../utils/constants';
+import { STATUS_BADGE_COLORS, isLockedStatus } from '../../../utils/constants';
 import type { Task, TaskStatus } from '../../../types';
 
 export default function StatusRenderer(params: ICellRendererParams<Task, TaskStatus>) {
   const value = params.value;
   if (!value) return null;
 
-  const isCompleted = params.data?.status === 'Completed';
+  const isCompleted = isLockedStatus(params.data?.status); // Completed or N/A
   const colors = STATUS_BADGE_COLORS[value] || { bg: '#f3f4f6', text: '#374151' };
 
   return (

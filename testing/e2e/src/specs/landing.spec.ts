@@ -11,7 +11,7 @@ test.describe('Landing Page', () => {
 
   test('displays hero section with heading', async () => {
     await expect(landing.heroHeading).toBeVisible();
-    await expect(landing.heroHeading).toContainText('Deploy with confidence');
+    await expect(landing.heroHeading).toContainText('Change requests and cutovers');
   });
 
   test('displays brand name', async () => {

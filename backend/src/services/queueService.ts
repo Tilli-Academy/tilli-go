@@ -68,6 +68,23 @@ export async function addEmailJob(data: EmailJobPayload): Promise<void> {
 }
 
 /**
+ * Re-send an email whose delivery claim was abandoned (a worker crashed mid-send).
+ * The jobId is new per recovery round, so BullMQ's 24 h de-duplication of the
+ * original job can't swallow it; the worker's claim still prevents duplicates.
+ */
+export async function addRecoveryEmailJob(data: EmailJobPayload, round: string): Promise<void> {
+  const jobId = `email-${data.taskId}-${data.type || 'notify'}${data.ownerId ? `-${data.ownerId}` : ''}-r${round}`;
+  await emailQueue.add('send-email', data, {
+    jobId,
+    attempts: 5,
+    backoff: { type: 'exponential', delay: 3000 },
+    removeOnComplete: { age: 86400 },
+    removeOnFail: { age: 7 * 86400 },
+  });
+  logger.warn({ jobId, taskId: data.taskId }, 'Abandoned email delivery re-queued');
+}
+
+/**
  * Enqueue a completion job for the worker to send a completion email.
  * Called by the scheduler when an Acknowledged task's plannedEndTime has passed.
  */
@@ -93,6 +110,40 @@ export async function addCompletionJob(task: TaskJobInput): Promise<void> {
   );
 
   logger.info({ jobId, taskId: task.id }, 'Completion job enqueued');
+}
+
+/**
+ * A due task has no owner: the worker keeps it Pending and tells Release Management.
+ * One job per task (deterministic jobId); the worker also skips if it already told them.
+ */
+export async function addNoOwnerJob(task: TaskJobInput): Promise<void> {
+  const jobId = `task-no-owner-${task.id}`;
+  await taskQueue.add(
+    'process-no-owner',
+    { taskId: task.id, taskName: task.taskName, system: task.system, assignedTeam: task.assignedTeam, assignedUserId: null },
+    { jobId, attempts: 3, backoff: { type: 'exponential', delay: 5000 }, removeOnComplete: { age: 86400 }, removeOnFail: { age: 7 * 86400 } },
+  );
+  logger.info({ jobId, taskId: task.id }, 'No-owner job enqueued');
+}
+
+function taskJob(name: string, jobId: string, task: TaskJobInput) {
+  return taskQueue.add(
+    name,
+    { taskId: task.id, taskName: task.taskName, system: task.system, assignedTeam: task.assignedTeam, assignedUserId: task.assignedUserId },
+    { jobId, attempts: 3, backoff: { type: 'exponential', delay: 5000 }, removeOnComplete: { age: 86400 }, removeOnFail: { age: 7 * 86400 } },
+  );
+}
+
+/** Still no owner 15 min after the first notice: one reminder (one job per task). */
+export async function addNoOwnerReminderJob(task: TaskJobInput): Promise<void> {
+  await taskJob('process-no-owner-reminder', `task-no-owner-reminder-${task.id}`, task);
+  logger.info({ taskId: task.id }, 'No-owner reminder job enqueued');
+}
+
+/** A ready task got a new owner: the worker emails them (one job per task per owner). */
+export async function addReassignedJob(task: TaskJobInput): Promise<void> {
+  await taskJob('process-reassigned', `task-reassigned-${task.id}-${task.assignedUserId}`, task);
+  logger.info({ taskId: task.id, ownerId: task.assignedUserId }, 'Reassigned-task job enqueued');
 }
 
 export async function close(): Promise<void> {

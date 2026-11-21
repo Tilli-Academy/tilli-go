@@ -23,7 +23,7 @@ async function main(): Promise<void> {
   // Create tasks for project A
   const taskA1 = await prisma.task.create({
     data: {
-      system: "FOL",
+      system: "Web app",
       taskName: "Pre-deploy DB backup",
       description: "Take full database snapshot before deployment",
       assignedTeam: "DBA",
@@ -35,10 +35,10 @@ async function main(): Promise<void> {
 
   const taskA2 = await prisma.task.create({
     data: {
-      system: "SAP GW",
-      taskName: "Deploy SAP Gateway service",
-      description: "Deploy updated OData services to SAP Gateway",
-      assignedTeam: "SAP Basis",
+      system: "Gateway",
+      taskName: "Deploy API gateway service",
+      description: "Deploy updated services to the API gateway",
+      assignedTeam: "Infrastructure",
       status: "Pending",
       projectId: projectA.id,
       sequenceNumber: 2,
@@ -47,9 +47,9 @@ async function main(): Promise<void> {
 
   const taskA3 = await prisma.task.create({
     data: {
-      system: "Fiserv",
+      system: "Payments",
       taskName: "Post-deploy smoke test",
-      description: "Run end-to-end smoke tests against Fiserv integration",
+      description: "Run end-to-end smoke tests against the payments integration",
       assignedTeam: "QA",
       status: "Pending",
       projectId: projectA.id,

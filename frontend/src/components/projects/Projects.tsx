@@ -1,6 +1,8 @@
 import React, { useContext, useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
+import { Link } from 'react-router-dom';
 import { ProjectContext } from '../../App';
+import { usePermissions } from '../../hooks/usePermissions';
 import { getErrorMessage } from '../../services/api';
 
 export default function Projects() {
@@ -8,6 +10,8 @@ export default function Projects() {
     useContext(ProjectContext);
 
   const [showForm, setShowForm] = useState(false);
+  const { can } = usePermissions();
+  const canManage = can('project.manage');
   const [name, setName] = useState('');
   const [code, setCode] = useState('');
   const [description, setDescription] = useState('');
@@ -83,7 +87,7 @@ export default function Projects() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          {selectedIds.size > 0 && (
+          {canManage && selectedIds.size > 0 && (
             <button
               onClick={handleBatchDelete}
               disabled={deleting}
@@ -92,7 +96,7 @@ export default function Projects() {
               {deleting ? 'Deleting...' : `Delete (${selectedIds.size})`}
             </button>
           )}
-          {!showForm && (
+          {canManage && !showForm && (
             <button
               onClick={() => setShowForm(true)}
               className="px-4 py-2 min-h-touch bg-primary text-white text-sm font-medium rounded-lg hover:bg-primary-hover transition-colors cursor-pointer focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2"
@@ -235,6 +239,13 @@ export default function Projects() {
                     {p.code}
                   </span>
                   <span className="font-medium text-text-primary truncate">{p.name}</span>
+                  {(p.changeRequests?.length ?? 0) > 0 && (
+                    <Link to={`/change-requests?view=table&project=${p.id}`} onClick={(e) => e.stopPropagation()}
+                      title={p.changeRequests!.map((c) => `CR-${c.number} ${c.title}`).join('\n')}
+                      className="flex-shrink-0 text-xs font-medium text-primary hover:underline">
+                      {p.changeRequests!.length} change request{p.changeRequests!.length > 1 ? 's' : ''}
+                    </Link>
+                  )}
                 </div>
                 {p.description && (
                   <p className="text-sm text-text-secondary mt-1 truncate">{p.description}</p>
