@@ -90,7 +90,7 @@ Scheduler runs in API process every 60s. Phase 1: unblock Blocked→Pending. Pha
 ## Email & Auth
 - **Email:** Nodemailer (SMTP or JSON mock). HMAC-SHA256 token, 7-day expiry. Rate limited 15/min/IP.
 - **Auth:** JWT (24h), stored in localStorage, Axios Bearer interceptor. 401 clears token → login redirect. The role is read from the database on every request (not from the JWT), so a role change applies at once.
-- **Email links (acknowledge / complete):** HMAC token (not JWT) that must name the current owner (`uid`). The confirm pages send it in the `X-Link-Token` header (GET) or the POST body, never in the API URL; Nginx logs paths without query strings. The status change is one conditional update, so double clicks save once.
+- **Email links (acknowledge / complete):** HMAC token (not JWT) that must name the current owner (`uid`) and the link type (`kind`: `ack` for the start-time email, `complete` for the completion email; one can't be used on the other's page). The confirm pages send it in the `X-Link-Token` header (GET) or the POST body, never in the API URL; Nginx logs paths without query strings. The status change is one conditional update, so double clicks save once.
 - **Email delivery (start alerts + completion email):** before sending, the worker claims the email with one conditional UPDATE (`task_alerts.claim_user_id/claimed_at`, `tasks.completion_email_status/claimed_at`). The claim is granted only if the task is still in the right state and still owned by that person. An email is recorded as sent only after the provider accepted it; a failed send releases the claim. A claim older than 5 min (crashed worker) can be taken over, and the scheduler re-queues such emails. Guarantee: at-least-once with duplicate suppression (see `worker/src/services/deliveryClaims.ts`).
 - **Permissions:** cached per API instance, keyed by `permission_version` (a trigger bumps it on any change to `role_permissions`), so changes apply on the next request on every instance.
 - **Concurrency:** plan changes (create, times/owner/dependencies, delete) run their checks and save in one transaction holding a per-project advisory lock. CR moves, CAB decisions and edits are conditional updates (409 if someone else changed the CR first). Each scheduler tick takes a short Redis lock, so several API instances don't run it at once.
@@ -114,7 +114,7 @@ Prisma binary targets include `linux-musl-openssl-3.0.x` for Alpine.
 - **Dashboard:** Status cards + SVG donut pie chart + recent tasks table (last 8), all project-scoped
 - **Projects page:** List with active indicator, inline create form, auto-selects new project
 - **Dependency service:** `canTaskExecute`, `assertDependenciesMet`, `wouldCreateCycle`, `setDependencies` — all enforce same-project
-- **Task service:** `ALLOWED_TRANSITIONS` map, double validation (middleware + service), audit log in transaction
+- **Task service:** `ALLOWED_TRANSITIONS` map, double validation (middleware + service), audit log in transaction. Every save is conditional on the status it was checked against (409 if it changed meanwhile); the worker's Pending → Triggered step likewise only applies while still Pending with the same owner
 - **Error handling:** ZodError → 400 with messages, AppError → custom status, else → 500
 
 ## Development Commands
@@ -151,5 +151,5 @@ DATABASE_URL="postgresql://deployflow:change-me-in-production@localhost:5438/dep
 | `20261119000000_add_cr_fields_lists_permissions` | CR fields, list_values, change_products/documents/links, role_permissions |
 | `20261120000000_task_cr_tag_alert_owners` | tasks.change_request_id, task_alerts.notified_user_ids + reminder_sent_at |
 | `20261121000000_completion_email_once` | tasks.completion_email_sent_at (completion email sent once) |
-| `20261122000000_recoverable_notifications` | delivery claims: tasks.completion_email_status/claimed_at, task_alerts.claim_user_id/claimed_at |
-| `20261122010000_permission_version` | permission_version + trigger on role_permissions |
+| `20261121010000_recoverable_notifications` | delivery claims: tasks.completion_email_status/claimed_at, task_alerts.claim_user_id/claimed_at |
+| `20261121020000_permission_version` | permission_version + trigger on role_permissions |

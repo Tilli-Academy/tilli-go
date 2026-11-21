@@ -71,11 +71,18 @@ function domainAllowed(email: string): boolean {
   return config.alerts.allowedDomains.includes(domain);
 }
 
-/** Best effort: tell the release manager. Never throws. */
-async function tellManager(task: AlertTask, reason: 'no_owner' | 'no_owner_reminder' | 'blocked_domain' | 'failed', detail?: string) {
+type ManagerReason = 'no_owner' | 'no_owner_reminder' | 'blocked_domain' | 'failed';
+
+/** Email the release manager. Throws if the send fails (so BullMQ can retry the job). */
+async function notifyManager(task: AlertTask, reason: ManagerReason, detail?: string): Promise<void> {
+  const { subject, html } = buildManagerNotice(task, reason, detail);
+  await sendMailInternal(config.alerts.releaseManager, subject, html, 'RELEASE MANAGER NOTICE');
+}
+
+/** Best effort: tell the release manager alongside another outcome. Never throws. */
+async function tellManager(task: AlertTask, reason: ManagerReason, detail?: string) {
   try {
-    const { subject, html } = buildManagerNotice(task, reason, detail);
-    await sendMailInternal(config.alerts.releaseManager, subject, html, 'RELEASE MANAGER NOTICE');
+    await notifyManager(task, reason, detail);
   } catch (err: unknown) {
     logger.error({ taskId: task.id, err: err instanceof Error ? err.message : String(err) }, 'Release manager notice failed');
   }
@@ -140,9 +147,10 @@ async function noOwnerNotice(task: AlertTask & { status: string }, log: typeof l
   }
   const existing = await prisma.taskAlert.findUnique({ where: { taskId: task.id } });
   if (existing?.status === 'NO_OWNER') return { status: 'skipped', reason: 'already_alerted' };
+  // Send first; record only once it went out. A failed send throws → BullMQ retries.
+  await notifyManager(task, 'no_owner');
   await recordAlert(task.id, { status: 'NO_OWNER', recipient: config.alerts.releaseManager, sentAt: new Date(), reminderSentAt: null });
   await audit(task.id, 'ALERT_NO_OWNER', `due but no owner — held, release manager told (${config.alerts.releaseManager})`);
-  await tellManager(task, 'no_owner');
   return { status: 'sent' };
 }
 
@@ -157,9 +165,10 @@ async function noOwnerReminder(task: AlertTask & { status: string }, log: typeof
   }
   const existing = await prisma.taskAlert.findUnique({ where: { taskId: task.id } });
   if (existing?.status !== 'NO_OWNER' || existing.reminderSentAt) return { status: 'skipped', reason: 'already_reminded' };
+  // Send first; record only once it went out. A failed send throws → BullMQ retries.
+  await notifyManager(task, 'no_owner_reminder');
   await prisma.taskAlert.update({ where: { taskId: task.id }, data: { reminderSentAt: new Date() } });
   await audit(task.id, 'ALERT_NO_OWNER_REMINDER', `still no owner — release manager reminded (${config.alerts.releaseManager})`);
-  await tellManager(task, 'no_owner_reminder');
   return { status: 'sent' };
 }
 

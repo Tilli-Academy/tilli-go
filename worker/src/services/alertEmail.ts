@@ -56,7 +56,7 @@ export function taskCode(task: Pick<AlertTask, 'project' | 'sequenceNumber'>): s
 export function buildAlertAckUrl(task: AlertTask): string {
   const end = task.plannedEndTime?.getTime();
   const exp = end ? Math.max(end + TWELVE_HOURS, Date.now() + TWELVE_HOURS) : undefined;
-  const token = signAckToken(task.id, { uid: task.assignedUser?.id, exp });
+  const token = signAckToken(task.id, { kind: 'ack', uid: task.assignedUser?.id, exp });
   return `${config.frontendUrl}/#/acknowledge?task_id=${task.id}&token=${token}`;
 }
 

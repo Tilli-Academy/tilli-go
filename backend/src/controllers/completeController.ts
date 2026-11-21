@@ -13,7 +13,7 @@ import type { CompleteSuccessResponse } from '../types';
 export const preview = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
     const { taskId, token } = readLinkParams(req);
-    const { data, fail } = checkLinkToken(taskId, token, 'Complete');
+    const { data, fail } = checkLinkToken(taskId, token, 'complete');
     if (fail) { res.status(fail.status).json(fail.body); return; }
     const task = await prisma.task.findUnique({
       where: { id: taskId },
@@ -37,7 +37,7 @@ export const preview = async (req: Request, res: Response, next: NextFunction): 
 export const complete = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
     const { taskId, token } = readLinkParams(req);
-    const { data, fail } = checkLinkToken(taskId, token, 'Complete');
+    const { data, fail } = checkLinkToken(taskId, token, 'complete');
     if (fail) { res.status(fail.status).json(fail.body); return; }
 
     const task = await prisma.task.findUnique({

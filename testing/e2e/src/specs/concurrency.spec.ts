@@ -68,4 +68,19 @@ test.describe('Concurrent plan changes (API)', () => {
       expect(del.status === 204 && dep.status === 200).toBe(false);
     }
   });
+
+  test('two status changes at the same moment (e.g. N/A vs Acknowledged): only one is saved', async ({ apiHelper, testUser }) => {
+    for (let i = 0; i < 3; i++) {
+      const t = await mk(`Status race ${i}`, { assignedUserId: testUser.id });
+      await apiHelper.setTaskStatus(t.id, 'Triggered');
+      const [na, ack] = await Promise.all([
+        call('PUT', `/tasks/${t.id}`, admin, { status: 'N/A' }),
+        call('PUT', `/tasks/${t.id}`, admin, { status: 'Acknowledged' }),
+      ]);
+      // One wins; the other gets 409 (changed meanwhile) or 400 (no longer a valid move)
+      expect([na.status, ack.status].filter((s) => s === 200)).toHaveLength(1);
+      const final = (await call('GET', `/tasks/${t.id}`, admin)).data.status;
+      expect(final).toBe(na.status === 200 ? 'N/A' : 'Acknowledged');
+    }
+  });
 });

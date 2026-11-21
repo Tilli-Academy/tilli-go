@@ -293,7 +293,19 @@ async function update(id: string, data: UpdateTaskDTO, opts: UpdateTaskOptions =
 
     // Fields, dependencies and audit are saved together: if any part fails, nothing is saved.
     if (hasFieldUpdates) {
-      await tx.task.update({ where: { id }, data: taskFields as Prisma.TaskUpdateInput });
+      // Saved only if the status is still the one every check above was based on:
+      // e.g. a grid "N/A" can't overwrite a task the owner acknowledged meanwhile.
+      const saved = await tx.task.updateMany({
+        where: { id, status: current.status },
+        data: taskFields as Prisma.TaskUncheckedUpdateManyInput,
+      });
+      if (saved.count === 0) {
+        const now = await tx.task.findUnique({ where: { id }, select: { status: true } });
+        throw new AppError(
+          now ? `This task changed meanwhile (it is now ${now.status}) - reload and try again` : 'Task not found',
+          now ? 409 : 404,
+        );
+      }
     }
     if (depsChanged) {
       await writeDependencies(tx, id, newDeps);

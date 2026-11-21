@@ -19,26 +19,38 @@ const hour = 3600_000;
 
 // ── Email-link tokens ───────────────────────────────────────────────────────
 test('a valid link token is accepted', () => {
-  const { data, fail } = checkLinkToken('t1', sign({ taskId: 't1', exp: Date.now() + hour, uid: 'u1' }));
+  const { data, fail } = checkLinkToken('t1', sign({ taskId: 't1', kind: 'ack', exp: Date.now() + hour, uid: 'u1' }), 'ack');
   assert.equal(fail, undefined);
   assert.equal(data.uid, 'u1');
 });
 
 test('expired, tampered, malformed, wrong-task and missing tokens are refused', () => {
-  const good = sign({ taskId: 't1', exp: Date.now() + hour, uid: 'u1' });
+  const good = sign({ taskId: 't1', kind: 'ack', exp: Date.now() + hour, uid: 'u1' });
   const cases: Array<[string, string | undefined, string]> = [
-    ['expired', sign({ taskId: 't1', exp: Date.now() - 1, uid: 'u1' }), 'Token expired'],
-    ['signed with another secret', sign({ taskId: 't1', exp: Date.now() + hour, uid: 'u1' }, 'not-the-secret'), 'Invalid token signature'],
+    ['expired', sign({ taskId: 't1', kind: 'ack', exp: Date.now() - 1, uid: 'u1' }), 'Token expired'],
+    ['signed with another secret', sign({ taskId: 't1', kind: 'ack', exp: Date.now() + hour, uid: 'u1' }, 'not-the-secret'), 'Invalid token signature'],
     ['payload edited after signing', `${Buffer.from(JSON.stringify({ taskId: 't1', exp: Date.now() + hour, uid: 'attacker' })).toString('base64url')}.${good.split('.')[1]}`, 'Invalid token signature'],
     ['malformed', 'not-a-token', 'Malformed token'],
-    ['for another task', sign({ taskId: 't2', exp: Date.now() + hour, uid: 'u1' }), 'Token task ID mismatch'],
+    ['for another task', sign({ taskId: 't2', kind: 'ack', exp: Date.now() + hour, uid: 'u1' }), 'Token task ID mismatch'],
   ];
   for (const [name, token, error] of cases) {
-    const { fail } = checkLinkToken('t1', token);
+    const { fail } = checkLinkToken('t1', token, 'ack');
     assert.equal(fail?.status, 403, name);
     assert.equal(fail?.body.error, error, name);
   }
-  assert.equal(checkLinkToken('t1', undefined).fail.status, 400);
+  assert.equal(checkLinkToken('t1', undefined, 'ack').fail.status, 400);
+});
+
+test('an acknowledge link cannot be used to complete, and vice versa', () => {
+  const ack = sign({ taskId: 't1', kind: 'ack', exp: Date.now() + hour, uid: 'u1' });
+  const complete = sign({ taskId: 't1', kind: 'complete', exp: Date.now() + hour, uid: 'u1' });
+  const untyped = sign({ taskId: 't1', exp: Date.now() + hour, uid: 'u1' });
+  assert.equal(checkLinkToken('t1', ack, 'ack').fail, undefined);
+  assert.equal(checkLinkToken('t1', complete, 'complete').fail, undefined);
+  assert.match(checkLinkToken('t1', ack, 'complete').fail.body.error, /for acknowledging/);
+  assert.match(checkLinkToken('t1', complete, 'ack').fail.body.error, /for marking the task completed/);
+  assert.equal(checkLinkToken('t1', untyped, 'ack').fail.status, 403, 'links without a type are refused');
+  assert.equal(checkLinkToken('t1', untyped, 'complete').fail.status, 403);
 });
 
 test('a link must name the current owner (owner-less and old-owner links are refused)', () => {

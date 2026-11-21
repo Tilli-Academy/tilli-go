@@ -20,18 +20,32 @@ export function readLinkParams(req: Request): { taskId?: string; token?: string 
   return { taskId: pick(body.task_id, query.task_id), token: pick(header, body.token, query.token) };
 }
 
-/** Signature, expiry and task are checked; the token itself is never logged. */
-export function checkLinkToken(taskId?: string, token?: string, kind = 'Link'): { data?: AckTokenData; fail?: LinkOutcome } {
+export type LinkKind = 'ack' | 'complete';
+
+/**
+ * Checks signature, expiry, task AND link type (an acknowledge link can't be used to
+ * complete, and vice versa). The token itself is never logged.
+ */
+export function checkLinkToken(taskId: string | undefined, token: string | undefined, kind: LinkKind): { data?: AckTokenData; fail?: LinkOutcome } {
   if (!taskId || !token) return { fail: { status: 400, body: { error: 'Missing task_id or token' } } };
+  let data: AckTokenData;
   try {
-    return { data: verifyAckToken(taskId, token) };
+    data = verifyAckToken(taskId, token);
   } catch (err: unknown) {
     const reason = err instanceof Error ? err.message : String(err);
-    logger.warn({ taskId, reason }, `${kind} token rejected`);
+    logger.warn({ taskId, reason, kind }, 'Email link token rejected');
     // Malformed tokens can throw parser errors; don't echo those back.
     const known = ['Malformed token', 'Invalid token signature', 'Token expired', 'Token task ID mismatch'];
     return { fail: { status: 403, body: { error: known.includes(reason) ? reason : 'Invalid token' } } };
   }
+  if (data.kind !== kind) {
+    logger.warn({ taskId, expected: kind, got: data.kind ?? null }, 'Email link used on the wrong page');
+    const error = kind === 'ack'
+      ? 'This link is for marking the task completed, not for acknowledging it'
+      : 'This link is for acknowledging the task, not for marking it completed';
+    return { fail: { status: 403, body: { error } } };
+  }
+  return { data };
 }
 
 /**

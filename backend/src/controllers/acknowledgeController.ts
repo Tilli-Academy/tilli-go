@@ -94,7 +94,7 @@ function already(task: { id: string; status: string; taskName: string; actualSta
 export const acknowledgePost = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
     const { taskId, token } = readLinkParams(req);
-    const { data, fail } = checkLinkToken(taskId, token, 'Ack');
+    const { data, fail } = checkLinkToken(taskId, token, 'ack');
     if (fail) { res.status(fail.status).json(fail.body); return; }
     const out = await acknowledgeTask(taskId!, data!);
     res.status(out.status).json(out.body);
@@ -110,7 +110,7 @@ export const acknowledgePost = async (req: Request, res: Response, next: NextFun
 export const preview = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
   try {
     const { taskId, token } = readLinkParams(req);
-    const { data: tokenData, fail } = checkLinkToken(taskId, token, 'Ack');
+    const { data: tokenData, fail } = checkLinkToken(taskId, token, 'ack');
     if (fail) { res.status(fail.status).json(fail.body); return; }
 
     const task = await prisma.task.findUnique({

@@ -72,21 +72,23 @@ async function processTrigger(job: Job<TaskJobPayload>): Promise<TaskProcessorRe
   }
 
   // ── 4. Transition Pending → Triggered + audit log (atomic) ──────────
-  await prisma.$transaction([
-    prisma.task.update({
-      where: { id: taskId },
+  // Only if it is still Pending with the same owner: a change made after step 1
+  // (e.g. marked N/A, or reassigned) is never overwritten.
+  const triggered = await prisma.$transaction(async (tx) => {
+    const moved = await tx.task.updateMany({
+      where: { id: taskId, status: 'Pending', assignedUserId: task.assignedUserId },
       data: { status: 'Triggered' },
-    }),
-    prisma.auditLog.create({
-      data: {
-        taskId,
-        action: 'SYSTEM_UPDATED',
-        field: 'status',
-        oldValue: 'Pending',
-        newValue: 'Triggered',
-      },
-    }),
-  ]);
+    });
+    if (moved.count === 0) return false;
+    await tx.auditLog.create({
+      data: { taskId, action: 'SYSTEM_UPDATED', field: 'status', oldValue: 'Pending', newValue: 'Triggered' },
+    });
+    return true;
+  });
+  if (!triggered) {
+    log.info('Task changed while being processed (status or owner) — not triggered');
+    return { status: 'skipped', reason: 'changed_meanwhile' };
+  }
 
   log.info('Task status → Triggered');
 

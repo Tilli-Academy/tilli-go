@@ -235,20 +235,33 @@ export async function tick(): Promise<void> {
     }
 
     // ── Phase 4: Recover start-time alerts ──────────────────────────────
-    // The task's current owner hasn't been emailed, nothing is sending right now
-    // (no claim, or a claim abandoned by a crashed worker), and nothing has happened
-    // for a whole lease: the job was lost. Queue a fresh one; the worker's claim
-    // still prevents a duplicate. FAILED / BLOCKED_DOMAIN / NO_OWNER are final.
+    // A ready (Triggered) task with alerts on whose current owner hasn't been emailed,
+    // where nothing is sending right now and nothing has happened for a whole lease:
+    // the email job was lost. Two cases:
+    //   - an alert row exists (claim abandoned by a crashed worker, retries used up
+    //     while another worker held the claim, or a reassignment job lost);
+    //   - NO alert row at all: the email job never made it into the queue. Only for
+    //     tasks changed in the last 24 h, so tasks that were triggered long ago (before
+    //     alerts existed) don't get a surprise email.
+    // Queue a fresh job; the worker's claim still prevents a duplicate.
+    // FAILED / BLOCKED_DOMAIN / NO_OWNER are final.
     const lost = await prisma.$queryRaw<Array<{ task_id: string; owner_id: string }>>`
-      SELECT a.task_id, t.assigned_user_id AS owner_id
-        FROM task_alerts a
-        JOIN tasks t ON t.id = a.task_id
+      SELECT t.id AS task_id, t.assigned_user_id AS owner_id
+        FROM tasks t
         JOIN projects p ON p.id = t.project_id
+        LEFT JOIN task_alerts a ON a.task_id = t.id
        WHERE t.status = 'Triggered' AND p.start_alerts_enabled AND t.assigned_user_id IS NOT NULL
-         AND NOT (t.assigned_user_id = ANY(a.notified_user_ids))
-         AND a.status IN ('SENDING', 'RETRYING', 'SENT')
-         AND (a.claim_user_id IS NULL OR a.claimed_at < ${leaseCutoff})
-         AND a.updated_at < ${leaseCutoff}
+         AND (
+           (a.task_id IS NULL
+              AND t.updated_at < ${leaseCutoff}
+              AND t.updated_at > ${new Date(now.getTime() - 24 * 3600_000)})
+           OR
+           (a.task_id IS NOT NULL
+              AND NOT (t.assigned_user_id = ANY(a.notified_user_ids))
+              AND a.status IN ('SENDING', 'RETRYING', 'SENT')
+              AND (a.claim_user_id IS NULL OR a.claimed_at < ${leaseCutoff})
+              AND a.updated_at < ${leaseCutoff})
+         )
        LIMIT 200`;
     const round = String(Math.floor(now.getTime() / NOTIFY_LEASE_MS));
     for (const row of lost) {

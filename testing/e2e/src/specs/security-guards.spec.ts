@@ -90,8 +90,9 @@ test.describe('Security guards (API)', () => {
   test.describe('email links', () => {
     const secret = process.env.ACK_TOKEN_SECRET;
     test.skip(!secret, 'set ACK_TOKEN_SECRET (same as the API) to run the email-link tests');
-    const link = (taskId: string, uid?: string, exp = Date.now() + 3_600_000) => {
-      const p = Buffer.from(JSON.stringify(uid ? { taskId, exp, uid } : { taskId, exp })).toString('base64url');
+    /** Sign a link like the worker does: kind 'ack' (start-time email) or 'complete' (completion email). */
+    const link = (taskId: string, uid?: string, exp = Date.now() + 3_600_000, kind: 'ack' | 'complete' = 'ack') => {
+      const p = Buffer.from(JSON.stringify(uid ? { taskId, kind, exp, uid } : { taskId, kind, exp })).toString('base64url');
       return `${p}.${crypto.createHmac('sha256', secret!).update(p).digest('base64url')}`;
     };
 
@@ -105,6 +106,10 @@ test.describe('Security guards (API)', () => {
       expect((await call('POST', '/acknowledge', undefined, { task_id: task.id, token: link(task.id, '00000000-0000-0000-0000-000000000000') })).status).toBe(403); // old owner
       expect((await call('POST', '/acknowledge', undefined, { task_id: task.id, token: link(task.id, testUser.id, Date.now() - 1000) })).data.error).toBe('Token expired');
       expect((await call('POST', '/acknowledge', undefined, { task_id: task.id, token: `${good.slice(0, -3)}xyz` })).status).toBe(403);
+      // An acknowledge link can't be used on the complete page, and vice versa
+      const completeLink = link(task.id, testUser.id, undefined, 'complete');
+      expect((await call('GET', `/complete/preview?task_id=${task.id}`, undefined, undefined, { 'X-Link-Token': good })).status).toBe(403);
+      expect((await call('POST', '/acknowledge', undefined, { task_id: task.id, token: completeLink })).status).toBe(403);
       expect((await apiHelper.getTask(task.id)).status).toBe('Triggered');
     });
 
@@ -117,7 +122,8 @@ test.describe('Security guards (API)', () => {
       expect(acks.map((r) => r.status)).toEqual([200, 200, 200, 200]);
       expect(acks.filter((r) => r.data.message === 'Task acknowledged successfully')).toHaveLength(1);
 
-      const done = await Promise.all([1, 2, 3, 4].map(() => call('POST', '/complete', undefined, { task_id: task.id, token })));
+      const completeToken = link(task.id, testUser.id, undefined, 'complete');
+      const done = await Promise.all([1, 2, 3, 4].map(() => call('POST', '/complete', undefined, { task_id: task.id, token: completeToken })));
       expect(done.map((r) => r.status)).toEqual([200, 200, 200, 200]);
       expect(done.filter((r) => r.data.message !== 'Task already completed')).toHaveLength(1);
       expect((await apiHelper.getTask(task.id)).status).toBe('Completed');

@@ -25,10 +25,14 @@ const isMock = !config.smtp.host || !config.smtp.user;
 
 // ── Signed acknowledgement tokens (HMAC-SHA256) ─────────────────────────────
 
-export function signAckToken(taskId: string, opts: { uid?: string; exp?: number } = {}): string {
+/** What a link may do: an acknowledge link can't be used to complete, and vice versa. */
+export type LinkKind = 'ack' | 'complete';
+
+export function signAckToken(taskId: string, opts: { kind: LinkKind; uid?: string; exp?: number }): string {
   const payload = Buffer.from(
     JSON.stringify({
       taskId,
+      kind: opts.kind,
       exp: opts.exp ?? Date.now() + config.ackTokenExpiryMs,
       ...(opts.uid ? { uid: opts.uid } : {}),
     }),
@@ -73,7 +77,7 @@ const TWELVE_HOURS = 12 * 60 * 60 * 1000;
 export function buildCompleteUrl(taskId: string, ownerId: string, plannedEndTime: Date | null): string {
   const end = plannedEndTime?.getTime();
   const exp = end ? Math.max(end + TWELVE_HOURS, Date.now() + TWELVE_HOURS) : undefined;
-  const token = signAckToken(taskId, { uid: ownerId, exp });
+  const token = signAckToken(taskId, { kind: 'complete', uid: ownerId, exp });
   return `${config.frontendUrl}/#/complete?task_id=${taskId}&token=${token}`;
 }
 
