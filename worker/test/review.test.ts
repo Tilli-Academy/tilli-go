@@ -201,3 +201,68 @@ test('start-time email links are typed "ack", completion email links "complete" 
   assert.equal(complete.kind, 'complete');
   assert.equal(complete.uid, 'u1');
 });
+
+// ── No-owner notice finalization (ownership race) ───────────────────────────
+
+/** A mail server that runs `during` while the email is being sent (between claim and record). */
+const mailboxDuring = (during: () => void) =>
+  mock.method(transporter, 'sendMail', async () => { during(); await new Promise((r) => setTimeout(r, 5)); return { messageId: '<m@test>' }; });
+
+test('owner assigned while the notice is being sent: NOT recorded as "no owner", claim released', async () => {
+  const db = noOwnerDb(null);
+  const mail = mailboxDuring(() => { db.task.assignedUserId = 'u1'; });
+  const r = await emailProcessor(emailJob('no_owner'));
+  assert.equal(mail.mock.callCount(), 1, 'the email did go out');
+  assert.equal(r.reason, 'owner_assigned_meanwhile');
+  assert.notEqual(db.alert!.status, 'NO_OWNER', 'no "on hold, no owner" status for a task that has an owner');
+  assert.equal(db.alert!.claimUserId, null, 'claim released, so a start alert for the new owner is not blocked');
+  assert.equal(db.alert!.claimedAt, null);
+});
+
+test('owner assigned while the reminder is being sent: reminder not recorded, claim released', async () => {
+  const db = noOwnerDb({ status: 'NO_OWNER', sentAt: new Date() });
+  mailboxDuring(() => { db.task.assignedUserId = 'u1'; });
+  assert.equal((await emailProcessor(emailJob('no_owner_reminder'))).reason, 'owner_assigned_meanwhile');
+  assert.equal(db.alert!.reminderSentAt, null);
+  assert.equal(db.alert!.claimUserId, null);
+});
+
+test('still no owner at the end: the notice is recorded (normal case)', async () => {
+  const db = noOwnerDb(null);
+  mailboxDuring(() => { /* nothing changes */ });
+  assert.equal((await emailProcessor(emailJob('no_owner'))).status, 'sent');
+  assert.equal(db.alert!.status, 'NO_OWNER');
+  assert.equal(db.alert!.recipient, RM);
+  assert.equal(db.alert!.claimUserId, null);
+});
+
+test('our claim was taken over by another worker during the send: their claim is left untouched', async () => {
+  const db = noOwnerDb(null);
+  const theirs = new Date(Date.now() + 1000);
+  // Another worker took the (expired) claim over while ours was still sending.
+  mailboxDuring(() => { db.alert!.claimUserId = 'release-manager:no-owner'; db.alert!.claimedAt = theirs; });
+  await emailProcessor(emailJob('no_owner'));
+  assert.equal(db.alert!.claimUserId, 'release-manager:no-owner');
+  assert.equal((db.alert!.claimedAt as Date).getTime(), theirs.getTime(), 'their claim is not released or overwritten');
+  assert.notEqual(db.alert!.status, 'NO_OWNER', 'we did not record over their claim');
+});
+
+test('a start-alert claim is never overwritten by a no-owner notice', async () => {
+  // Owner assigned + task triggered: the start alert for u1 holds the claim during our send.
+  const db = noOwnerDb(null);
+  mailboxDuring(() => {
+    db.task.assignedUserId = 'u1';
+    Object.assign(db.alert!, { claimUserId: 'u1', claimedAt: new Date(Date.now() + 1000), status: 'SENDING', recipient: 'u1@tilli.pro' });
+  });
+  await emailProcessor(emailJob('no_owner'));
+  assert.equal(db.alert!.claimUserId, 'u1', 'the start-alert claim is intact');
+  assert.equal(db.alert!.recipient, 'u1@tilli.pro');
+  assert.equal(db.alert!.status, 'SENDING');
+  // and a notice job that starts while a start-alert claim is live doesn't send at all
+  mock.restoreAll();
+  const db2 = noOwnerDb({ status: 'SENDING', claimUserId: 'u1', claimedAt: new Date() });
+  const mail = mailboxDuring(() => {});
+  await assert.rejects(emailProcessor(emailJob('no_owner')), /another worker/);
+  assert.equal(mail.mock.callCount(), 0);
+  assert.equal(db2.alert!.claimUserId, 'u1');
+});

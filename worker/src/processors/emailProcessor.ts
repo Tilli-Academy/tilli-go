@@ -176,12 +176,19 @@ async function sendManagerNotice(
     await claims.releaseManagerNotice(task.id, which, claimedAt);
     throw err;
   }
+  let outcome: Awaited<ReturnType<typeof claims.completeManagerNotice>> | 'record_failed';
   try {
-    if (!(await claims.completeManagerNotice(task.id, which, claimedAt, to))) {
-      log.warn('Notice sent, but the claim had expired and was taken over — a repeat is possible');
-    }
+    outcome = await claims.completeManagerNotice(task.id, which, claimedAt, to);
   } catch (err: unknown) {
+    outcome = 'record_failed';
     log.error({ err: err instanceof Error ? err.message : String(err) }, 'Notice sent but could not be recorded — not retrying');
+  }
+  if (outcome === 'claim_lost') log.warn('Notice sent, but the claim had expired and was taken over — a repeat is possible');
+  if (outcome === 'owner_assigned') {
+    // The email went out (audit says so), but the task has an owner now: no "no owner" record.
+    log.info('Notice sent, but an owner was assigned meanwhile — not recorded as "no owner"');
+    await audit(task.id, auditAction, `${auditText} (an owner was assigned while it was being sent)`);
+    return { status: 'sent', reason: 'owner_assigned_meanwhile' };
   }
   await audit(task.id, auditAction, auditText);
   return { status: 'sent' };

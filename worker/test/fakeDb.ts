@@ -101,6 +101,8 @@ export function installFakeDb(prisma: any, state: FakeState) {
       if (state.failRecord) throw new Error('database unavailable');
       const [recipient, , marker, claimedAt] = v;
       if (a.claimUserId !== marker || a.claimedAt?.getTime() !== claimedAt.getTime()) return 0;
+      // ...AND EXISTS (task still has no owner and is waiting)
+      if (state.task.assignedUserId != null || !['Pending', 'Triggered'].includes(state.task.status)) return 0;
       Object.assign(a, { status: 'NO_OWNER', recipient, sentAt: new Date(), reminderSentAt: null, claimUserId: null, claimedAt: null });
       return 1;
     }
@@ -109,6 +111,8 @@ export function installFakeDb(prisma: any, state: FakeState) {
       if (state.failRecord) throw new Error('database unavailable');
       const [, marker, claimedAt] = v;
       if (a.claimUserId !== marker || a.claimedAt?.getTime() !== claimedAt.getTime()) return 0;
+      // ...AND EXISTS (task still has no owner and is waiting)
+      if (state.task.assignedUserId != null || !['Pending', 'Triggered'].includes(state.task.status)) return 0;
       Object.assign(a, { reminderSentAt: new Date(), claimUserId: null, claimedAt: null });
       return 1;
     }

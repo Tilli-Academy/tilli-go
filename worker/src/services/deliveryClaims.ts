@@ -164,18 +164,39 @@ export async function whyManagerNoticeRefused(taskId: string, which: ManagerNoti
   return 'busy';
 }
 
-/** Record the notice / reminder as sent (only the claim holder can). */
-export async function completeManagerNotice(taskId: string, which: ManagerNotice, claimedAt: Date, recipient: string): Promise<boolean> {
+/**
+ * Record the notice / reminder as sent. One conditional UPDATE: only by the claim
+ * holder (marker + claim time, so a start-alert claim or another worker's newer claim
+ * is never touched) AND only while the task still has no owner.
+ *   'recorded'       - saved
+ *   'owner_assigned' - an owner was assigned during the send: nothing is recorded
+ *                      (no "no owner" status on a task that has one); our claim is
+ *                      released, the alert status is left as it was
+ *   'claim_lost'     - our claim expired and was taken over: nothing is touched
+ */
+export async function completeManagerNotice(
+  taskId: string,
+  which: ManagerNotice,
+  claimedAt: Date,
+  recipient: string,
+): Promise<'recorded' | 'owner_assigned' | 'claim_lost'> {
   const marker = MARKER[which];
   const n = which === 'notice'
     ? await prisma.$executeRaw`
-        UPDATE task_alerts SET status = 'NO_OWNER', recipient = ${recipient}, sent_at = now(), reminder_sent_at = NULL,
+        UPDATE task_alerts a SET status = 'NO_OWNER', recipient = ${recipient}, sent_at = now(), reminder_sent_at = NULL,
                claim_user_id = NULL, claimed_at = NULL, updated_at = now()
-         WHERE task_id = ${taskId} AND claim_user_id = ${marker} AND claimed_at = ${claimedAt}`
+         WHERE a.task_id = ${taskId} AND a.claim_user_id = ${marker} AND a.claimed_at = ${claimedAt}
+           AND EXISTS (SELECT 1 FROM tasks t WHERE t.id = a.task_id AND t.assigned_user_id IS NULL AND t.status IN ('Pending', 'Triggered'))`
     : await prisma.$executeRaw`
-        UPDATE task_alerts SET reminder_sent_at = now(), claim_user_id = NULL, claimed_at = NULL, updated_at = now()
-         WHERE task_id = ${taskId} AND claim_user_id = ${marker} AND claimed_at = ${claimedAt}`;
-  return n === 1;
+        UPDATE task_alerts a SET reminder_sent_at = now(), claim_user_id = NULL, claimed_at = NULL, updated_at = now()
+         WHERE a.task_id = ${taskId} AND a.claim_user_id = ${marker} AND a.claimed_at = ${claimedAt}
+           AND EXISTS (SELECT 1 FROM tasks t WHERE t.id = a.task_id AND t.assigned_user_id IS NULL AND t.status IN ('Pending', 'Triggered'))`;
+  if (n === 1) return 'recorded';
+  // Not recorded: either the task got an owner (release our claim) or the claim isn't ours any more.
+  const released = await prisma.$executeRaw`
+    UPDATE task_alerts SET claim_user_id = NULL, claimed_at = NULL, updated_at = now()
+     WHERE task_id = ${taskId} AND claim_user_id = ${marker} AND claimed_at = ${claimedAt}`;
+  return released === 1 ? 'owner_assigned' : 'claim_lost';
 }
 
 /** Give the claim back after a failed send, so the retry can take it. */
