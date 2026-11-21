@@ -63,7 +63,16 @@ export function installFakeDb(prisma: any, state: FakeState) {
   // claimManagerNotice: values = [marker, taskId, which, which, leaseSeconds]
   def('$queryRaw', async (q: TemplateStringsArray, ownerId: string, to: string, ...rest: any[]) => {
     await tick();
-    if (q.join('?').includes('reminder_sent_at IS NULL')) {
+    const text = q.join('?');
+    if (text.includes('FROM tasks WHERE id') && text.includes('FOR SHARE')) {
+      const t = state.task;
+      return t ? [{ assigned_user_id: t.assignedUserId ?? null, status: t.status }] : [];
+    }
+    if (text.includes('FROM task_alerts WHERE task_id') && text.includes('FOR UPDATE')) {
+      const al = state.alert;
+      return al ? [{ claim_user_id: al.claimUserId ?? null, claimed_at: al.claimedAt ?? null, status: al.status, notified: (al.notifiedUserIds ?? []).length }] : [];
+    }
+    if (text.includes('reminder_sent_at IS NULL')) {
       const marker = ownerId;
       const which = rest[0];
       const a = state.alert!;
@@ -96,24 +105,24 @@ export function installFakeDb(prisma: any, state: FakeState) {
       Object.assign(a, { status: 'SENT', sentAt: new Date(), messageId, attempts, claimUserId: null, claimedAt: null });
       return 1;
     }
+    // completeManagerNotice runs these inside its transaction, after locking (see $transaction below).
     if (sql.includes("status = 'NO_OWNER'")) {
-      // completeManagerNotice (notice): [recipient, taskId, marker, claimedAt]
       if (state.failRecord) throw new Error('database unavailable');
-      const [recipient, , marker, claimedAt] = v;
-      if (a.claimUserId !== marker || a.claimedAt?.getTime() !== claimedAt.getTime()) return 0;
-      // ...AND EXISTS (task still has no owner and is waiting)
-      if (state.task.assignedUserId != null || !['Pending', 'Triggered'].includes(state.task.status)) return 0;
-      Object.assign(a, { status: 'NO_OWNER', recipient, sentAt: new Date(), reminderSentAt: null, claimUserId: null, claimedAt: null });
+      Object.assign(a, { status: 'NO_OWNER', recipient: v[0], sentAt: new Date(), reminderSentAt: null, claimUserId: null, claimedAt: null });
       return 1;
     }
     if (sql.includes('reminder_sent_at = now()')) {
-      // completeManagerNotice (reminder): [taskId, marker, claimedAt]
       if (state.failRecord) throw new Error('database unavailable');
-      const [, marker, claimedAt] = v;
-      if (a.claimUserId !== marker || a.claimedAt?.getTime() !== claimedAt.getTime()) return 0;
-      // ...AND EXISTS (task still has no owner and is waiting)
-      if (state.task.assignedUserId != null || !['Pending', 'Triggered'].includes(state.task.status)) return 0;
       Object.assign(a, { reminderSentAt: new Date(), claimUserId: null, claimedAt: null });
+      return 1;
+    }
+    if (sql.includes('DELETE FROM task_alerts')) {
+      state.alert = null;
+      return 1;
+    }
+    if (v.length === 1) {
+      // in-transaction release of our claim (already verified under the lock)
+      Object.assign(a, { claimUserId: null, claimedAt: null });
       return 1;
     }
     // releaseStartAlert / releaseManagerNotice: [taskId, ownerId or marker, claimedAt]
@@ -122,5 +131,8 @@ export function installFakeDb(prisma: any, state: FakeState) {
     Object.assign(a, { claimUserId: null, claimedAt: null });
     return 1;
   });
+  // Interactive transaction: the callback runs against the same fake. JavaScript runs it
+  // without interleaving at the statements that matter here, so it behaves atomically.
+  def('$transaction', async (fn: (tx: unknown) => Promise<unknown>) => fn(prisma));
   return state;
 }

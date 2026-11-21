@@ -164,39 +164,69 @@ export async function whyManagerNoticeRefused(taskId: string, which: ManagerNoti
   return 'busy';
 }
 
+export type ManagerNoticeOutcome = 'recorded' | 'owner_assigned' | 'task_no_longer_eligible' | 'claim_lost';
+
 /**
- * Record the notice / reminder as sent. One conditional UPDATE: only by the claim
- * holder (marker + claim time, so a start-alert claim or another worker's newer claim
- * is never touched) AND only while the task still has no owner.
- *   'recorded'       - saved
- *   'owner_assigned' - an owner was assigned during the send: nothing is recorded
- *                      (no "no owner" status on a task that has one); our claim is
- *                      released, the alert status is left as it was
- *   'claim_lost'     - our claim expired and was taken over: nothing is touched
+ * Record the notice / reminder as sent - serialised against owner changes.
+ *
+ * One transaction, locks always taken in the order tasks → task_alerts (the same order
+ * as every other transaction that touches both, e.g. acknowledge and owner changes in
+ * the API, so no deadlock cycle is possible):
+ *   1. SELECT … FROM tasks … FOR SHARE: waits for an owner change in progress and then
+ *      reads the committed owner; while held, nobody can change the owner/status.
+ *      (FOR SHARE, not FOR UPDATE: it doesn't block rows that merely reference the
+ *      task, like history entries.)
+ *   2. SELECT … FROM task_alerts … FOR UPDATE: the claim can't change under us.
+ *   3. Decide on the locked, current values:
+ *        claim not ours (marker + claim time)   → 'claim_lost', nothing touched
+ *        task gone / owner set / status moved   → not recorded; our claim is cleaned up
+ *        still waiting with no owner            → recorded ('recorded')
+ * If an owner is assigned right after we commit, the owner change itself clears the
+ * finished no-owner state (backend taskService.update), so an owned task never keeps
+ * a "no owner" alert.
  */
 export async function completeManagerNotice(
   taskId: string,
   which: ManagerNotice,
   claimedAt: Date,
   recipient: string,
-): Promise<'recorded' | 'owner_assigned' | 'claim_lost'> {
+): Promise<ManagerNoticeOutcome> {
   const marker = MARKER[which];
-  const n = which === 'notice'
-    ? await prisma.$executeRaw`
-        UPDATE task_alerts a SET status = 'NO_OWNER', recipient = ${recipient}, sent_at = now(), reminder_sent_at = NULL,
-               claim_user_id = NULL, claimed_at = NULL, updated_at = now()
-         WHERE a.task_id = ${taskId} AND a.claim_user_id = ${marker} AND a.claimed_at = ${claimedAt}
-           AND EXISTS (SELECT 1 FROM tasks t WHERE t.id = a.task_id AND t.assigned_user_id IS NULL AND t.status IN ('Pending', 'Triggered'))`
-    : await prisma.$executeRaw`
-        UPDATE task_alerts a SET reminder_sent_at = now(), claim_user_id = NULL, claimed_at = NULL, updated_at = now()
-         WHERE a.task_id = ${taskId} AND a.claim_user_id = ${marker} AND a.claimed_at = ${claimedAt}
-           AND EXISTS (SELECT 1 FROM tasks t WHERE t.id = a.task_id AND t.assigned_user_id IS NULL AND t.status IN ('Pending', 'Triggered'))`;
-  if (n === 1) return 'recorded';
-  // Not recorded: either the task got an owner (release our claim) or the claim isn't ours any more.
-  const released = await prisma.$executeRaw`
-    UPDATE task_alerts SET claim_user_id = NULL, claimed_at = NULL, updated_at = now()
-     WHERE task_id = ${taskId} AND claim_user_id = ${marker} AND claimed_at = ${claimedAt}`;
-  return released === 1 ? 'owner_assigned' : 'claim_lost';
+  return prisma.$transaction(async (tx) => {
+    const [task] = await tx.$queryRaw<Array<{ assigned_user_id: string | null; status: string }>>`
+      SELECT assigned_user_id, status FROM tasks WHERE id = ${taskId} FOR SHARE`;
+    const [alert] = await tx.$queryRaw<Array<{ claim_user_id: string | null; claimed_at: Date | null; status: string; notified: number }>>`
+      SELECT claim_user_id, claimed_at, status, cardinality(notified_user_ids) AS notified
+        FROM task_alerts WHERE task_id = ${taskId} FOR UPDATE`;
+    if (!alert || alert.claim_user_id !== marker || alert.claimed_at?.getTime() !== claimedAt.getTime()) return 'claim_lost';
+
+    const eligible = !!task && !task.assigned_user_id && ['Pending', 'Triggered'].includes(task.status);
+    if (eligible) {
+      if (which === 'notice') {
+        await tx.$executeRaw`
+          UPDATE task_alerts SET status = 'NO_OWNER', recipient = ${recipient}, sent_at = now(), reminder_sent_at = NULL,
+                 claim_user_id = NULL, claimed_at = NULL, updated_at = now()
+           WHERE task_id = ${taskId}`;
+      } else {
+        await tx.$executeRaw`
+          UPDATE task_alerts SET reminder_sent_at = now(), claim_user_id = NULL, claimed_at = NULL, updated_at = now()
+           WHERE task_id = ${taskId}`;
+      }
+      return 'recorded';
+    }
+
+    // Not recorded. Clean up our claim: a row that only ever held this no-owner notice
+    // (nobody emailed, still SENDING / NO_OWNER) is removed, so the new owner's start
+    // alert starts from a clean row and nothing shows a stale "Sending…" or "no owner";
+    // otherwise only our claim is released and the status is left as it was.
+    if (Number(alert.notified) === 0 && ['SENDING', 'NO_OWNER'].includes(alert.status)) {
+      await tx.$executeRaw`DELETE FROM task_alerts WHERE task_id = ${taskId}`;
+    } else {
+      await tx.$executeRaw`
+        UPDATE task_alerts SET claim_user_id = NULL, claimed_at = NULL, updated_at = now() WHERE task_id = ${taskId}`;
+    }
+    return task?.assigned_user_id ? 'owner_assigned' : 'task_no_longer_eligible';
+  });
 }
 
 /** Give the claim back after a failed send, so the retry can take it. */

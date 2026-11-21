@@ -208,23 +208,22 @@ test('start-time email links are typed "ack", completion email links "complete" 
 const mailboxDuring = (during: () => void) =>
   mock.method(transporter, 'sendMail', async () => { during(); await new Promise((r) => setTimeout(r, 5)); return { messageId: '<m@test>' }; });
 
-test('owner assigned while the notice is being sent: NOT recorded as "no owner", claim released', async () => {
+test('owner assigned while the notice is being sent: NOT recorded as "no owner", its row is cleaned up', async () => {
   const db = noOwnerDb(null);
   const mail = mailboxDuring(() => { db.task.assignedUserId = 'u1'; });
   const r = await emailProcessor(emailJob('no_owner'));
   assert.equal(mail.mock.callCount(), 1, 'the email did go out');
   assert.equal(r.reason, 'owner_assigned_meanwhile');
-  assert.notEqual(db.alert!.status, 'NO_OWNER', 'no "on hold, no owner" status for a task that has an owner');
-  assert.equal(db.alert!.claimUserId, null, 'claim released, so a start alert for the new owner is not blocked');
-  assert.equal(db.alert!.claimedAt, null);
+  // The row only ever held this notice: it is removed, so nothing shows "no owner" or a
+  // stale "Sending…", and the new owner's start alert starts from a clean row.
+  assert.equal(db.alert, null);
 });
 
-test('owner assigned while the reminder is being sent: reminder not recorded, claim released', async () => {
+test('owner assigned while the reminder is being sent: reminder not recorded, row cleaned up', async () => {
   const db = noOwnerDb({ status: 'NO_OWNER', sentAt: new Date() });
   mailboxDuring(() => { db.task.assignedUserId = 'u1'; });
   assert.equal((await emailProcessor(emailJob('no_owner_reminder'))).reason, 'owner_assigned_meanwhile');
-  assert.equal(db.alert!.reminderSentAt, null);
-  assert.equal(db.alert!.claimUserId, null);
+  assert.equal(db.alert, null, 'no reminder recorded and no "no owner" left on an owned task');
 });
 
 test('still no owner at the end: the notice is recorded (normal case)', async () => {
@@ -265,4 +264,11 @@ test('a start-alert claim is never overwritten by a no-owner notice', async () =
   await assert.rejects(emailProcessor(emailJob('no_owner')), /another worker/);
   assert.equal(mail.mock.callCount(), 0);
   assert.equal(db2.alert!.claimUserId, 'u1');
+});
+
+test('task moved on (e.g. N/A) with no owner during the send: "task_moved_on", not "owner assigned"', async () => {
+  const db = noOwnerDb(null);
+  mailboxDuring(() => { db.task.status = 'N/A'; });
+  assert.equal((await emailProcessor(emailJob('no_owner'))).reason, 'task_moved_on_meanwhile');
+  assert.equal(db.alert, null);
 });

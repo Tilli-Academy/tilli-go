@@ -184,11 +184,13 @@ async function sendManagerNotice(
     log.error({ err: err instanceof Error ? err.message : String(err) }, 'Notice sent but could not be recorded — not retrying');
   }
   if (outcome === 'claim_lost') log.warn('Notice sent, but the claim had expired and was taken over — a repeat is possible');
-  if (outcome === 'owner_assigned') {
-    // The email went out (audit says so), but the task has an owner now: no "no owner" record.
-    log.info('Notice sent, but an owner was assigned meanwhile — not recorded as "no owner"');
-    await audit(task.id, auditAction, `${auditText} (an owner was assigned while it was being sent)`);
-    return { status: 'sent', reason: 'owner_assigned_meanwhile' };
+  if (outcome === 'owner_assigned' || outcome === 'task_no_longer_eligible') {
+    // The email went out (audit says so), but the task no longer waits with no owner:
+    // nothing is recorded as "no owner" / reminded.
+    const why = outcome === 'owner_assigned' ? 'an owner was assigned' : 'the task moved on';
+    log.info({ outcome }, `Notice sent, but ${why} meanwhile — not recorded`);
+    await audit(task.id, auditAction, `${auditText} (${why} while it was being sent)`);
+    return { status: 'sent', reason: outcome === 'owner_assigned' ? 'owner_assigned_meanwhile' : 'task_moved_on_meanwhile' };
   }
   await audit(task.id, auditAction, auditText);
   return { status: 'sent' };

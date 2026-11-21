@@ -309,6 +309,15 @@ async function update(id: string, data: UpdateTaskDTO, opts: UpdateTaskOptions =
         if (!now) throw new AppError('Task not found', 404);
         throw changedMeanwhile(now.status);
       }
+      // An owner was set: a finished "no owner" alert no longer applies. Removed in the
+      // same transaction, after the task row (lock order tasks → task_alerts, like the
+      // worker's notice finalization). A row with a claim in progress is left to that
+      // worker, which re-checks the owner under a lock and cleans up itself.
+      if (taskFields.assignedUserId) {
+        await tx.taskAlert.deleteMany({
+          where: { taskId: id, status: 'NO_OWNER', claimUserId: null, notifiedUserIds: { isEmpty: true } },
+        });
+      }
     }
     if (depsChanged) {
       await writeDependencies(tx, id, newDeps);
