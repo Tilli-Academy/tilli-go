@@ -6,8 +6,10 @@ import { emailWorker } from './src/queues/emailQueue';
 import * as emailProducer from './src/services/emailProducer';
 import connection from './src/config/redis';
 import { MAIL_SETTINGS_KEY, mailSettings } from './src/services/mailSettings';
+import { startHeartbeat } from './src/health';
 
 logger.info('Tilli-go worker started');
+startHeartbeat([taskWorker, emailWorker]);
 // The worker is the one that sends, so it tells the API (via Redis) what it really uses.
 async function publishMailSettings(): Promise<void> {
   try {
