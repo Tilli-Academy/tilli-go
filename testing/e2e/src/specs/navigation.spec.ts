@@ -14,21 +14,26 @@ test.describe('Navigation', () => {
   });
 
   test('sidebar Dashboard link navigates to /dashboard', async ({ authenticatedPage }) => {
-    await sidebar.navigateTo('Projects');
-    await expect(authenticatedPage).toHaveURL(/#\/projects/);
+    await sidebar.navigateTo('Change Requests');
+    await expect(authenticatedPage).toHaveURL(/#\/change-requests/);
 
     await sidebar.navigateTo('Dashboard');
     await expect(authenticatedPage).toHaveURL(/#\/dashboard/);
   });
 
-  test('sidebar Projects link navigates to /projects', async ({ authenticatedPage }) => {
-    await sidebar.navigateTo('Projects');
-    await expect(authenticatedPage).toHaveURL(/#\/projects/);
+  test('sidebar Change Requests link navigates to /change-requests', async ({ authenticatedPage }) => {
+    await sidebar.navigateTo('Change Requests');
+    await expect(authenticatedPage).toHaveURL(/#\/change-requests/);
   });
 
-  test('sidebar Tasks link navigates to /tasks', async ({ authenticatedPage }) => {
-    await sidebar.navigateTo('Tasks');
-    await expect(authenticatedPage).toHaveURL(/#\/tasks/);
+  test('sidebar Timeline link navigates to /timeline', async ({ authenticatedPage }) => {
+    await sidebar.navigateTo('Timeline');
+    await expect(authenticatedPage).toHaveURL(/#\/timeline/);
+  });
+
+  test('Projects and Tasks are not sidebar items (opened from a change request)', async () => {
+    await expect(sidebar.sidebar.getByRole('link', { name: 'Projects' })).toHaveCount(0);
+    await expect(sidebar.sidebar.getByRole('link', { name: 'Tasks' })).toHaveCount(0);
   });
 
   test('sidebar Profile link navigates to /profile', async ({ authenticatedPage }) => {
@@ -37,11 +42,11 @@ test.describe('Navigation', () => {
   });
 
   test('active link is highlighted', async ({ authenticatedPage }) => {
-    await sidebar.navigateTo('Projects');
-    await expect(authenticatedPage).toHaveURL(/#\/projects/);
+    await sidebar.navigateTo('Timeline');
+    await expect(authenticatedPage).toHaveURL(/#\/timeline/);
 
     const activeLink = sidebar.getActiveLink();
-    await expect(activeLink).toContainText('Projects');
+    await expect(activeLink).toContainText('Timeline');
   });
 
   test('sidebar collapse persists on reload', async ({ authenticatedPage }) => {
@@ -68,13 +73,13 @@ test.describe('Navigation', () => {
     await sidebar.navigateTo('Dashboard');
     await expect(header.pageTitle).toHaveText('Dashboard');
 
-    // Projects
-    await sidebar.navigateTo('Projects');
-    await expect(header.pageTitle).toHaveText('Projects');
+    // Change Requests
+    await sidebar.navigateTo('Change Requests');
+    await expect(header.pageTitle).toHaveText('Change Requests');
 
-    // Tasks
-    await sidebar.navigateTo('Tasks');
-    await expect(header.pageTitle).toHaveText('Task Management');
+    // Timeline
+    await sidebar.navigateTo('Timeline');
+    await expect(header.pageTitle).toHaveText('Cutover Timeline');
 
     // Profile
     await sidebar.navigateTo('Profile');

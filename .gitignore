@@ -10,3 +10,6 @@ gittag.txt
 ideas/
 docs/
 snapshots/
+# The worker generates its Prisma client from backend/prisma (worker/scripts/prisma-generate.mjs);
+# never commit a copy of the schema here.
+worker/prisma/

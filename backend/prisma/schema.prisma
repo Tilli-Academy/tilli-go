@@ -9,66 +9,90 @@ datasource db {
 }
 
 model User {
-  id                  String    @id @default(uuid())
-  email               String    @unique
+  id                  String          @id @default(uuid())
+  email               String          @unique
   password            String?
   name                String
-  role                String    @default("user")
-  oauthProvider       String?   @map("oauth_provider")
-  oauthId             String?   @map("oauth_id")
-  oauthAccessToken    String?   @map("oauth_access_token") @db.Text
-  oauthRefreshToken   String?   @map("oauth_refresh_token") @db.Text
-  oauthTokenExpiresAt DateTime? @map("oauth_token_expires_at")
-  profilePicture      String?   @map("profile_picture") @db.Text
-  createdAt           DateTime  @default(now()) @map("created_at")
-  updatedAt           DateTime  @updatedAt @map("updated_at")
-  tasks               Task[]    @relation("AssignedUser")
+  role                String          @default("user")
+  oauthProvider       String?         @map("oauth_provider")
+  oauthId             String?         @map("oauth_id")
+  oauthAccessToken    String?         @map("oauth_access_token") @db.Text
+  oauthRefreshToken   String?         @map("oauth_refresh_token") @db.Text
+  oauthTokenExpiresAt DateTime?       @map("oauth_token_expires_at")
+  profilePicture      String?         @map("profile_picture") @db.Text
+  createdAt           DateTime        @default(now()) @map("created_at")
+  updatedAt           DateTime        @updatedAt @map("updated_at")
+  tasks               Task[]          @relation("AssignedUser")
+  crAssigned          ChangeRequest[] @relation("CrAssignee")
+  crReported          ChangeRequest[] @relation("CrReporter")
+  crApproved          ChangeRequest[] @relation("CrApprover")
+  crDecided           ChangeRequest[] @relation("CrDecider")
+  crEvents            ChangeEvent[]
 
   @@unique([oauthProvider, oauthId])
   @@map("users")
 }
 
 model Project {
-  id          String   @id @default(uuid())
-  name        String
-  code        String   @unique
-  description String?
-  createdAt   DateTime @default(now()) @map("created_at")
-  updatedAt   DateTime @updatedAt @map("updated_at")
-  tasks       Task[]
+  id                 String          @id @default(uuid())
+  name               String
+  code               String          @unique
+  description        String?
+  createdAt          DateTime        @default(now()) @map("created_at")
+  updatedAt          DateTime        @updatedAt @map("updated_at")
+  tasks              Task[]
+  changeRequests     ChangeRequest[]
+  // Start-time alerts: email owners when their task is ready. New projects start Off.
+  startAlertsEnabled Boolean         @default(false) @map("start_alerts_enabled")
+  // IANA zone the cutover runs in. Emails, the acknowledge page and the Timeline show
+  // times in this zone with UTC alongside.
+  timeZone           String          @default("America/Chicago") @map("time_zone")
 
   @@map("projects")
 }
 
 model Task {
-  id               String    @id @default(uuid())
-  system           String
-  taskName         String    @map("task_name")
-  description      String?
-  assignedTeam     String?   @map("assigned_team")
-  assignedUserId   String?   @map("assigned_user_id")
-  assignedUser     User?     @relation("AssignedUser", fields: [assignedUserId], references: [id])
-  plannedStartTime DateTime? @map("planned_start_time")
-  plannedEndTime   DateTime? @map("planned_end_time")
-  actualStartTime  DateTime? @map("actual_start_time")
-  actualEndTime    DateTime? @map("actual_end_time")
-  status           String    @default("Pending")
-  notes            String?
-  projectId        String    @map("project_id")
-  project          Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  sequenceNumber   Int       @map("sequence_number")
-  createdAt        DateTime  @default(now()) @map("created_at")
-  updatedAt        DateTime  @updatedAt @map("updated_at")
+  id                       String         @id @default(uuid())
+  system                   String
+  taskName                 String         @map("task_name")
+  description              String?
+  assignedTeam             String?        @map("assigned_team")
+  assignedUserId           String?        @map("assigned_user_id")
+  assignedUser             User?          @relation("AssignedUser", fields: [assignedUserId], references: [id])
+  plannedStartTime         DateTime?      @map("planned_start_time")
+  plannedEndTime           DateTime?      @map("planned_end_time")
+  actualStartTime          DateTime?      @map("actual_start_time")
+  actualEndTime            DateTime?      @map("actual_end_time")
+  status                   String         @default("Pending")
+  notes                    String?
+  projectId                String         @map("project_id")
+  project                  Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  // Optional: the change request (in the same project) this task belongs to. When a
+  // CR has tagged tasks, its Review gate waits only for those, not the whole release.
+  changeRequestId          String?        @map("change_request_id")
+  changeRequest            ChangeRequest? @relation(fields: [changeRequestId], references: [id], onDelete: SetNull)
+  // When the "planned end has passed - mark it completed" email went out (sent once).
+  completionEmailSentAt    DateTime?      @map("completion_email_sent_at")
+  // Delivery state of that email: null (not due / not tried) | SENDING | SENT | FAILED.
+  // While SENDING, completionEmailClaimedAt is the claim time; a claim older than the
+  // lease (5 min) is treated as abandoned (worker crash) and can be taken over.
+  completionEmailStatus    String?        @map("completion_email_status")
+  completionEmailClaimedAt DateTime?      @map("completion_email_claimed_at")
+  sequenceNumber           Int            @map("sequence_number")
+  createdAt                DateTime       @default(now()) @map("created_at")
+  updatedAt                DateTime       @updatedAt @map("updated_at")
 
-  dependsOn   TaskDependency[] @relation("TaskDependsOn")
-  dependedBy  TaskDependency[] @relation("TaskDependedBy")
-  auditLogs   AuditLog[]
+  dependsOn  TaskDependency[] @relation("TaskDependsOn")
+  dependedBy TaskDependency[] @relation("TaskDependedBy")
+  auditLogs  AuditLog[]
+  alert      TaskAlert?
 
+  @@unique([projectId, sequenceNumber])
   @@index([projectId])
   @@index([status, plannedStartTime])
   @@index([status])
   @@index([assignedUserId])
-  @@unique([projectId, sequenceNumber])
+  @@index([changeRequestId])
   @@map("tasks")
 }
 
@@ -99,4 +123,223 @@ model AuditLog {
 
   @@index([taskId])
   @@map("audit_logs")
+}
+
+// ── Change Request module ───────────────────────────────────────────────────
+// A change request (CR / CAB request) tracks one change from idea to production.
+// Its optional cutover plan is an ordinary Tilli-go Project, so the existing
+// task grid, scheduler and email worker run the go-live unchanged.
+model ChangeRequest {
+  id             String             @id @default(uuid())
+  number         Int                @unique @default(autoincrement())
+  title          String
+  description    String             @db.Text
+  // Managed-list values (admin-configurable rows with stable ids).
+  changeTypeId   String?            @map("change_type_id")
+  changeTypeRef  ListValue?         @relation("CrChangeType", fields: [changeTypeId], references: [id], onDelete: Restrict)
+  releaseTypeId  String?            @map("release_type_id")
+  releaseTypeRef ListValue?         @relation("CrReleaseType", fields: [releaseTypeId], references: [id], onDelete: Restrict)
+  priorityId     String?            @map("priority_id")
+  priorityRef    ListValue?         @relation("CrPriority", fields: [priorityId], references: [id], onDelete: Restrict)
+  teamId         String?            @map("team_id")
+  team           ListValue?         @relation("CrTeam", fields: [teamId], references: [id], onDelete: Restrict)
+  products       ChangeProduct[]
+  // Fixed keys LOW | MEDIUM | HIGH (labels and colours come from the "risk" list).
+  risk           String
+  impact         String?
+  // Before managed lists these were free text. Kept (read-only) so old data stays intact.
+  product        String?
+  changeType     String?            @map("change_type")
+  releaseType    String?            @map("release_type")
+  priority       String?
+  customer       String?
+  labels         String[]           @default([])
+  plannedGoLive  DateTime           @map("planned_go_live")
+  dueDate        DateTime?          @map("due_date")
+  datePresented  DateTime?          @map("date_presented")
+  codeFreezeDate DateTime?          @map("code_freeze_date")
+  downtimeHours  Float?             @map("downtime_hours")
+  needsCutover   Boolean            @default(true) @map("needs_cutover")
+  status         String             @default("NEW")
+  // Latest CAB decision: APPROVED | REQUEST_INFO | DEFERRED | REJECTED
+  decision       String?
+  decidedAt      DateTime?          @map("decided_at")
+  decidedById    String?            @map("decided_by_id")
+  decidedBy      User?              @relation("CrDecider", fields: [decidedById], references: [id])
+  assigneeId     String             @map("assignee_id")
+  assignee       User               @relation("CrAssignee", fields: [assigneeId], references: [id])
+  reporterId     String             @map("reporter_id")
+  reporter       User               @relation("CrReporter", fields: [reporterId], references: [id])
+  approvedById   String?            @map("approved_by_id")
+  approvedBy     User?              @relation("CrApprover", fields: [approvedById], references: [id])
+  approvedAt     DateTime?          @map("approved_at")
+  projectId      String?            @map("project_id")
+  project        Project?           @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  createdAt      DateTime           @default(now()) @map("created_at")
+  updatedAt      DateTime           @updatedAt @map("updated_at")
+  events         ChangeEvent[]
+  attachments    ChangeAttachment[]
+  documents      ChangeDocument[]
+  tasks          Task[]
+  linksFrom      ChangeLink[]       @relation("LinkFrom")
+  linksTo        ChangeLink[]       @relation("LinkTo")
+
+  @@index([status])
+  @@index([product, plannedGoLive])
+  @@map("change_requests")
+}
+
+// ── Managed lists (Admin → Lists) ───────────────────────────────────────────
+// One row per value with a stable id: add, rename, reorder, colour, deactivate.
+// Values in use are never hard-deleted; deactivated ones stay on old CRs.
+// list: change_type | release_type | product | priority | team | supporting_document | risk | decision
+// `key` is set only for the fixed lists (risk, decision): their keys drive rules.
+model ListValue {
+  id            String           @id @default(uuid())
+  list          String
+  key           String?
+  label         String
+  color         String?
+  sortOrder     Int              @default(0) @map("sort_order")
+  active        Boolean          @default(true)
+  // supporting_document only: must be attached before a CR can be Approved
+  required      Boolean          @default(false)
+  createdAt     DateTime         @default(now()) @map("created_at")
+  updatedAt     DateTime         @updatedAt @map("updated_at")
+  asChangeType  ChangeRequest[]  @relation("CrChangeType")
+  asReleaseType ChangeRequest[]  @relation("CrReleaseType")
+  asPriority    ChangeRequest[]  @relation("CrPriority")
+  asTeam        ChangeRequest[]  @relation("CrTeam")
+  asProduct     ChangeProduct[]
+  asDocument    ChangeDocument[]
+
+  @@unique([list, key])
+  @@index([list, sortOrder])
+  @@map("list_values")
+}
+
+model ChangeProduct {
+  changeRequestId String        @map("change_request_id")
+  changeRequest   ChangeRequest @relation(fields: [changeRequestId], references: [id], onDelete: Cascade)
+  productId       String        @map("product_id")
+  product         ListValue     @relation(fields: [productId], references: [id])
+
+  @@id([changeRequestId, productId])
+  @@index([productId])
+  @@map("change_products")
+}
+
+// Supporting-documents checklist: each document type links to an attachment or a URL.
+model ChangeDocument {
+  id              String            @id @default(uuid())
+  changeRequestId String            @map("change_request_id")
+  changeRequest   ChangeRequest     @relation(fields: [changeRequestId], references: [id], onDelete: Cascade)
+  documentTypeId  String            @map("document_type_id")
+  documentType    ListValue         @relation(fields: [documentTypeId], references: [id])
+  attachmentId    String?           @map("attachment_id")
+  attachment      ChangeAttachment? @relation(fields: [attachmentId], references: [id], onDelete: SetNull)
+  url             String?
+  addedById       String            @map("added_by_id")
+  createdAt       DateTime          @default(now()) @map("created_at")
+
+  @@unique([changeRequestId, documentTypeId])
+  @@map("change_documents")
+}
+
+// Linked change requests (stored once; shown on both).
+model ChangeLink {
+  fromId    String        @map("from_id")
+  from      ChangeRequest @relation("LinkFrom", fields: [fromId], references: [id], onDelete: Cascade)
+  toId      String        @map("to_id")
+  to        ChangeRequest @relation("LinkTo", fields: [toId], references: [id], onDelete: Cascade)
+  createdAt DateTime      @default(now()) @map("created_at")
+
+  @@id([fromId, toId])
+  @@index([toId])
+  @@map("change_links")
+}
+
+// Which permissions each role has. The backend checks permissions, never role
+// names. Seeded by migration; a Roles page (follow-up PR) will edit these rows.
+model RolePermission {
+  role       String
+  permission String
+
+  @@id([role, permission])
+  @@map("role_permissions")
+}
+
+// One row. A database trigger bumps `version` on any change to role_permissions, so
+// every API instance sees permission changes on the next check (no stale cache).
+model PermissionVersion {
+  id      Int    @id @default(1)
+  version BigInt @default(1)
+
+  @@map("permission_version")
+}
+
+model ChangeEvent {
+  id              String        @id @default(uuid())
+  changeRequestId String        @map("change_request_id")
+  changeRequest   ChangeRequest @relation(fields: [changeRequestId], references: [id], onDelete: Cascade)
+  kind            String // CREATED | STATUS | COMMENT | ATTACHMENT | CUTOVER
+  fromStatus      String?       @map("from_status")
+  toStatus        String?       @map("to_status")
+  message         String?       @db.Text
+  actorId         String        @map("actor_id")
+  actor           User          @relation(fields: [actorId], references: [id])
+  createdAt       DateTime      @default(now()) @map("created_at")
+
+  @@index([changeRequestId, createdAt])
+  @@map("change_events")
+}
+
+// Files are stored outside the database (disk now, SharePoint later); only metadata lives here.
+model ChangeAttachment {
+  id              String        @id @default(uuid())
+  changeRequestId String        @map("change_request_id")
+  changeRequest   ChangeRequest @relation(fields: [changeRequestId], references: [id], onDelete: Cascade)
+  fileName        String        @map("file_name")
+  mimeType        String        @map("mime_type")
+  size            Int
+  provider        String // local | sharepoint
+  storageKey      String        @map("storage_key")
+  uploadedById    String        @map("uploaded_by_id")
+  createdAt       DateTime      @default(now()) @map("created_at")
+
+  documents ChangeDocument[]
+
+  @@index([changeRequestId])
+  @@map("change_attachments")
+}
+
+// ── Start-time alerts ───────────────────────────────────────────────────────
+// One row per task: who was told, when, and whether they started.
+// status: SENDING | SENT | ACKNOWLEDGED | NO_OWNER | FAILED | RETRYING | BLOCKED_DOMAIN
+model TaskAlert {
+  id              String    @id @default(uuid())
+  taskId          String    @unique @map("task_id")
+  task            Task      @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  status          String
+  recipient       String?
+  sentAt          DateTime? @map("sent_at")
+  acknowledgedAt  DateTime? @map("acknowledged_at")
+  attempts        Int       @default(0)
+  lastError       String?   @map("last_error")
+  messageId       String?   @map("message_id")
+  // Owners already emailed for this task: one start alert per task per owner
+  // (a new owner after a reassignment gets one; nobody gets two).
+  notifiedUserIds String[]  @default([]) @map("notified_user_ids")
+  // A worker sending right now: who it is sending to and since when. Cleared when the
+  // send succeeds or fails; a claim older than the lease (5 min) can be taken over.
+  claimUserId     String?   @map("claim_user_id")
+  claimedAt       DateTime? @map("claimed_at")
+  // No-owner reminder to Release Management (sent once, 15 min after the first notice)
+  reminderSentAt  DateTime? @map("reminder_sent_at")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  @@index([status])
+  @@index([claimedAt])
+  @@map("task_alerts")
 }

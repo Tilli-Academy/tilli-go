@@ -36,10 +36,13 @@ interface PaginatedResponse<T> {
 export class ApiHelper {
   private token: string;
   private baseUrl: string;
+  /** Owner given to tasks created by the tests: a task with no owner can't start. */
+  private ownerId?: string;
 
-  constructor(token: string, baseUrl: string = API_URL) {
+  constructor(token: string, baseUrl: string = API_URL, ownerId?: string) {
     this.token = token;
     this.baseUrl = baseUrl;
+    this.ownerId = ownerId;
   }
 
   private async request<T>(
@@ -123,7 +126,12 @@ export class ApiHelper {
   // ── Tasks ─────────────────────────────────────────────────────────────
 
   async createTask(projectId: string, taskName: string, system: string = 'FOL'): Promise<Task> {
-    return this.request<Task>('POST', '/api/tasks', { projectId, taskName, system });
+    return this.request<Task>('POST', '/api/tasks', {
+      projectId,
+      taskName,
+      system,
+      ...(this.ownerId ? { assignedUserId: this.ownerId } : {}),
+    });
   }
 
   async getTask(id: string): Promise<Task> {

@@ -6,6 +6,7 @@ import {
   UserCheckIcon,
   CheckCircleIcon,
   BanIcon,
+  MinusCircleIcon,
 } from "./DashboardIcons";
 import type { IconProps } from "./DashboardIcons";
 
@@ -15,6 +16,7 @@ export type StatusTone =
   | "acknowledged"
   | "completed"
   | "blocked"
+  | "na"
   | "neutral";
 
 export interface StatusMetaEntry {
@@ -32,6 +34,7 @@ export const STATUS_META: Record<TaskStatus, StatusMetaEntry> = {
   Acknowledged: { tone: "acknowledged", icon: UserCheckIcon, hint: "Owner is working on it" },
   Completed: { tone: "completed", icon: CheckCircleIcon, hint: "Finished" },
   Blocked: { tone: "blocked", icon: BanIcon, hint: "Waiting on prerequisite tasks" },
+  "N/A": { tone: "na", icon: MinusCircleIcon, hint: "Not needed in this cutover (counts as done)" },
 };
 
 const FALLBACK: StatusMetaEntry = { tone: "neutral", icon: ClockIcon, hint: "" };

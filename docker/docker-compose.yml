@@ -69,6 +69,11 @@ services:
       MICROSOFT_TENANT_ID: ${MICROSOFT_TENANT_ID:-common}
       MICROSOFT_REDIRECT_URI: ${MICROSOFT_REDIRECT_URI:-}
       TOKEN_ENCRYPTION_KEY: ${TOKEN_ENCRYPTION_KEY:-}
+      UPLOAD_DIR: /app/uploads
+      # Email settings live on the worker only (it sends); the API shows what the worker publishes.
+      DEMO_TOOLS: ${DEMO_TOOLS:-false}
+    volumes:
+      - uploads:/app/uploads
     depends_on:
       postgres:
         condition: service_healthy
@@ -107,7 +112,9 @@ services:
       EMAIL_DOMAIN: ${EMAIL_DOMAIN:-tilli.pro}
       EMAIL_FROM_ADDRESS: ${EMAIL_FROM_ADDRESS:-}
       EMAIL_FROM_NAME: ${EMAIL_FROM_NAME:-Tilli-go}
-      EMAIL_FALLBACK_TEAM: ${EMAIL_FALLBACK_TEAM:-ops}
+      ALERT_ALLOWED_DOMAINS: ${ALERT_ALLOWED_DOMAINS:-}
+      ALERT_RELEASE_MANAGER_EMAIL: ${ALERT_RELEASE_MANAGER_EMAIL:-}
+      ALERT_REPLY_TO: ${ALERT_REPLY_TO:-}
       MICROSOFT_MAIL_ENABLED: ${MICROSOFT_MAIL_ENABLED:-false}
       MICROSOFT_CLIENT_ID: ${MICROSOFT_CLIENT_ID:-}
       MICROSOFT_CLIENT_SECRET: ${MICROSOFT_CLIENT_SECRET:-}
@@ -155,9 +162,25 @@ services:
     networks:
       - tilli-go
 
+  # Optional local inbox for demos/testing: catches every email the worker sends.
+  # Start with `--profile mail` and set SMTP_HOST=mailpit SMTP_PORT=1025 SMTP_USER/PASS=any.
+  mailpit:
+    image: axllent/mailpit:v1.21
+    profiles: ["mail"]
+    restart: unless-stopped
+    environment:
+      MP_SMTP_AUTH_ACCEPT_ANY: "1"
+      MP_SMTP_AUTH_ALLOW_INSECURE: "1"
+      MP_WEBROOT: ${MAILPIT_WEBROOT:-/}
+    ports:
+      - "${MAILPIT_PORT:-8025}:8025"
+    networks:
+      - tilli-go
+
 volumes:
   pgdata:
   redisdata:
+  uploads:
 
 networks:
   tilli-go:

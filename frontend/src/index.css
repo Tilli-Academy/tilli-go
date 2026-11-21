@@ -8,14 +8,6 @@
 
 :root {
   /* ── Layer 1: Primitives (raw HSL values, no wrapper) ──────────────── */
-  --color-teal-50:  166 76% 97%;
-  --color-teal-100: 167 85% 89%;
-  --color-teal-200: 168 84% 78%;
-  --color-teal-500: 170 75% 41%;
-  --color-teal-600: 171 77% 36%;
-  --color-teal-700: 173 80% 26%;
-  --color-teal-800: 175 84% 22%;
-  --color-teal-900: 176 69% 15%;
 
   --color-amber-50:  48 100% 96%;
   --color-amber-100: 48 96% 89%;
@@ -27,24 +19,26 @@
   --color-red-500: 0 84% 60%;
   --color-red-600: 0 72% 51%;
 
-  --color-stone-50:  60 9% 98%;
-  --color-stone-100: 60 5% 96%;
-  --color-stone-200: 20 6% 90%;
-  --color-stone-300: 24 6% 83%;
-  --color-stone-400: 24 5% 64%;
-  --color-stone-500: 25 5% 45%;
-  --color-stone-600: 33 5% 32%;
-  --color-stone-700: 30 6% 25%;
-  --color-stone-800: 12 6% 15%;
-  --color-stone-900: 24 10% 10%;
-
   --color-white: 0 0% 100%;
 
+  /* Tilli brand (tillisoftware.com) */
+  --color-tilli-blue:       226 93% 58%;   /* #315EF8 Royal Blue */
+  --color-tilli-blue-hover: 226 76% 50%;   /* #1F4BE0 */
+  --color-tilli-blue-50:    222 100% 97%;  /* #EEF3FF */
+  --color-tilli-blue-100:   223 100% 93%;  /* #DCE6FF */
+  --color-tilli-navy:       220 61% 13%;   /* #0D1B36 Dark Navy: headings, important text */
+  --color-slate-600:        215 19% 35%;   /* #475569 */
+  --color-slate-500:        216 18% 43%;   /* #5B6B82 Slate Grey, a shade deeper than #64748B: >= 4.5:1 on the light background too */
+  --color-slate-300:        213 27% 84%;   /* #CBD5E1 */
+  --color-slate-200:        214 32% 91%;   /* #E2E8F0 */
+  --color-slate-100:        210 40% 96%;   /* #F1F5F9 */
+  --color-tilli-bg:         214 54% 97%;   /* #F5F8FC Light Background */
+
   /* ── Layer 2: Semantic tokens ─────────────────────────────────────── */
-  --color-primary:       var(--color-teal-700);
-  --color-primary-hover: var(--color-teal-800);
-  --color-primary-light: var(--color-teal-50);
-  --color-primary-muted: var(--color-teal-100);
+  --color-primary:       var(--color-tilli-blue);
+  --color-primary-hover: var(--color-tilli-blue-hover);
+  --color-primary-light: var(--color-tilli-blue-50);
+  --color-primary-muted: var(--color-tilli-blue-100);
 
   --color-accent:       var(--color-amber-600);
   --color-accent-light: var(--color-amber-50);
@@ -56,15 +50,24 @@
   --color-warning-light: var(--color-amber-50);
 
   --color-surface:       var(--color-white);
-  --color-surface-alt:   var(--color-stone-50);
-  --color-surface-hover: var(--color-stone-100);
+  --color-surface-alt:   var(--color-tilli-bg);
+  --color-surface-hover: var(--color-slate-100);
 
-  --color-border:        var(--color-stone-200);
-  --color-border-strong: var(--color-stone-300);
+  --color-border:        var(--color-slate-200);
+  --color-border-strong: var(--color-slate-300);
 
-  --color-text-primary:   var(--color-stone-900);
-  --color-text-secondary: var(--color-stone-500);
-  --color-text-muted:     var(--color-stone-400);
+  --color-text-primary:   var(--color-tilli-navy);
+  --color-text-secondary: var(--color-slate-600);
+  --color-text-muted:     var(--color-slate-500);   /* still >= 4.5:1, so small helper text is readable */
+
+  /* Brand gradient (Tilli). Exact brand values for decoration (no text on top).
+     Buttons use a deeper cyan end so white text stays >= 4.5:1 along the whole button;
+     the exact cyan would drop to about 2.4:1. */
+  --gradient-brand:        linear-gradient(100deg, #315EF8, #00B0FF);
+  --gradient-button:       linear-gradient(100deg, #315EF8, #0078CC);
+  --gradient-button-hover: linear-gradient(100deg, #1F4BE0, #0065AD);
+  --gradient-button-active: linear-gradient(100deg, #1A40C4, #00578F);
+  --shadow-brand: 0 6px 16px -8px rgba(49, 94, 248, 0.55);
 
   /* ── Typography ───────────────────────────────────────────────────── */
   --font-sans: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
@@ -72,7 +75,7 @@
   /* ── Focus ring ───────────────────────────────────────────────────── */
   --ring-width: 2px;
   --ring-offset: 2px;
-  --ring-color: hsl(var(--color-teal-500) / 0.5);
+  --ring-color: hsl(var(--color-tilli-blue) / 0.55);
 }
 
 /* ── Reduced motion ──────────────────────────────────────────────────── */
@@ -114,14 +117,14 @@ body {
 
   /* Row highlight: left border accents */
   --row-border-pending:      #9ca3af;
-  --row-border-triggered:    #0F766E;
+  --row-border-triggered:    #315EF8;
   --row-border-acknowledged: #f59e0b;
   --row-border-completed:    #22c55e;
   --row-border-blocked:      #ef4444;
 
   /* Row highlight: background tints (4-5% opacity) */
   --row-bg-pending:          rgba(156, 163, 175, 0.04);
-  --row-bg-triggered:        rgba(15, 118, 110, 0.04);
+  --row-bg-triggered:        rgba(49, 94, 248, 0.04);
   --row-bg-acknowledged:     rgba(245, 158, 11, 0.04);
   --row-bg-completed:        rgba(34, 197, 94, 0.04);
   --row-bg-blocked:          rgba(239, 68, 68, 0.05);
@@ -129,7 +132,7 @@ body {
 
 /* AG Grid row selection highlight */
 .ag-theme-alpine .ag-row-selected {
-  background-color: #f0fdfa !important;
+  background-color: #EEF3FF !important;
 }
 
 /* ── Status row highlights (SAP UI5 semantic rows) ──────────────────── */
@@ -190,7 +193,7 @@ body {
 }
 
 .ag-cell:hover .status-cell-editable {
-  box-shadow: 0 0 0 2px rgba(15, 118, 110, 0.3);
+  box-shadow: 0 0 0 2px rgba(49, 94, 248, 0.3);
 }
 
 /* Editable cell affordances (generic — text/select columns) */
@@ -199,9 +202,9 @@ body {
 }
 
 .ag-theme-alpine .ag-row:not(.row-status-completed) .ag-cell-editable:hover {
-  background-color: hsl(var(--color-stone-50));
+  background-color: hsl(var(--color-tilli-bg));
   border-radius: 3px;
-  box-shadow: inset 0 0 0 1px hsl(var(--color-stone-200));
+  box-shadow: inset 0 0 0 1px hsl(var(--color-slate-200));
   transition: background-color 150ms, box-shadow 150ms;
 }
 
@@ -223,4 +226,35 @@ body {
 
 .animate-slide-in {
   animation: slide-in 0.2s ease-out;
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   TILLI BRAND — primary buttons
+   One rule instead of editing every button: anything styled as a filled primary
+   control (bg-primary + text-white) gets the brand gradient with matching hover,
+   active and disabled states. Outline / ghost buttons are untouched.
+   ══════════════════════════════════════════════════════════════════════════ */
+@layer components {
+  .bg-primary.text-white {
+    background-image: var(--gradient-button);
+    box-shadow: var(--shadow-brand);
+  }
+  .bg-primary.text-white:hover:not(:disabled) {
+    background-image: var(--gradient-button-hover);
+  }
+  .bg-primary.text-white:active:not(:disabled) {
+    background-image: var(--gradient-button-active);
+  }
+  .bg-primary.text-white:disabled {
+    box-shadow: none;
+  }
+  /* Brand gradient for highlights (no text on top), e.g. progress bars, accents */
+  .bg-brand-gradient {
+    background-image: var(--gradient-brand);
+  }
+}
+
+/* Headings in Tilli navy */
+h1, h2, h3 {
+  color: hsl(var(--color-tilli-navy));
 }

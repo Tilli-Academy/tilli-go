@@ -51,8 +51,8 @@ test.describe('Dashboard', () => {
     await dashboard.goto();
 
     await expect(dashboard.overviewHeading).toBeVisible({ timeout: 10_000 });
-    // Should have 5 status cards (Pending, Triggered, Acknowledged, Completed, Blocked)
-    await expect(dashboard.statusCards).toHaveCount(5);
+    // 6 status cards (Pending, Triggered, Acknowledged, Completed, Blocked, N/A)
+    await expect(dashboard.statusCards).toHaveCount(6);
   });
 
   test('displays pie chart', async ({ authenticatedPage, apiHelper }) => {

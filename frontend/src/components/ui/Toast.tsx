@@ -13,7 +13,7 @@ export function toast(message: string, type: ToastType = 'error'): void {
 
 const typeStyles: Record<ToastType, string> = {
   error: 'bg-destructive text-white',
-  success: 'bg-teal-600 text-white',
+  success: 'bg-emerald-700 text-white', // success stays green (5.5:1 with white)
   info: 'bg-primary text-white',
   warning: 'bg-amber-500 text-white',
 };

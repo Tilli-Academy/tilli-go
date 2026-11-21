@@ -5,6 +5,9 @@ export {
   ALLOWED_TRANSITIONS,
   STATUS_REQUIRES_DEPS_MET,
   TASK_INCLUDE,
+  DONE_STATUSES,
+  LOCKED_STATUSES,
+  isDone,
 } from './task';
 
 export type {
@@ -31,7 +34,7 @@ export type {
 } from './task';
 
 // ── Project domain ──────────────────────────────────────────────────────────
-export type { CreateProjectDTO, ProjectFilterParams } from './project';
+export type { CreateProjectDTO, UpdateProjectDTO, ProjectFilterParams } from './project';
 
 // ── Auth domain ─────────────────────────────────────────────────────────────
 export type {

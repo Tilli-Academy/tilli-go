@@ -3,6 +3,7 @@ import nodemailer from 'nodemailer';
 import config from '../config';
 import logger from '../config/logger';
 import { sendEmailViaGraph } from './graphEmailService';
+import { fromAddress } from './mailSettings';
 
 // ── Transport ────────────────────────────────────────────────────────────────
 // Real SMTP when credentials are configured, otherwise jsonTransport mock.
@@ -12,6 +13,11 @@ const transporter = config.smtp.host && config.smtp.user
       port: config.smtp.port,
       secure: config.smtp.port === 465,
       auth: { user: config.smtp.user, pass: config.smtp.pass },
+      // Well under the 5-minute delivery claim (services/deliveryClaims.ts), so a hung
+      // send fails and is retried instead of outliving its claim.
+      connectionTimeout: 30_000,
+      greetingTimeout: 30_000,
+      socketTimeout: 60_000,
     })
   : nodemailer.createTransport({ jsonTransport: true });
 
@@ -19,11 +25,16 @@ const isMock = !config.smtp.host || !config.smtp.user;
 
 // ── Signed acknowledgement tokens (HMAC-SHA256) ─────────────────────────────
 
-export function signAckToken(taskId: string): string {
+/** What a link may do: an acknowledge link can't be used to complete, and vice versa. */
+export type LinkKind = 'ack' | 'complete';
+
+export function signAckToken(taskId: string, opts: { kind: LinkKind; uid?: string; exp?: number }): string {
   const payload = Buffer.from(
     JSON.stringify({
       taskId,
-      exp: Date.now() + config.ackTokenExpiryMs,
+      kind: opts.kind,
+      exp: opts.exp ?? Date.now() + config.ackTokenExpiryMs,
+      ...(opts.uid ? { uid: opts.uid } : {}),
     }),
   ).toString('base64url');
 
@@ -35,14 +46,9 @@ export function signAckToken(taskId: string): string {
   return `${payload}.${signature}`;
 }
 
-export function buildAckUrl(taskId: string): string {
-  const token = signAckToken(taskId);
-  return `${config.frontendUrl}/#/acknowledge?task_id=${taskId}&token=${token}`;
-}
-
 // ── HTML escaping ────────────────────────────────────────────────────────────
 
-function escapeHtml(str: string): string {
+export function escapeHtml(str: string): string {
   return str
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
@@ -55,6 +61,7 @@ function escapeHtml(str: string): string {
 
 interface TaskForEmail {
   id: string;
+  plannedEndTime: Date | null;
   taskName: string;
   system: string;
   description: string | null;
@@ -62,24 +69,15 @@ interface TaskForEmail {
   assignedUser: { id: string; email: string; name: string } | null;
 }
 
-function buildTaskEmailHtml(task: TaskForEmail, ackUrl: string): string {
-  return [
-    `<h2>Task Triggered: ${escapeHtml(task.taskName)}</h2>`,
-    `<p><strong>System:</strong> ${escapeHtml(task.system)}</p>`,
-    `<p><strong>Team:</strong> ${escapeHtml(task.assignedTeam || 'Unassigned')}</p>`,
-    task.description
-      ? `<p><strong>Description:</strong> ${escapeHtml(task.description)}</p>`
-      : '',
-    '<br/>',
-    `<p><a href="${ackUrl}" style="padding:10px 20px;background:#2563eb;color:#fff;text-decoration:none;border-radius:4px;">Acknowledge Task</a></p>`,
-    `<p style="color:#666;font-size:12px;">Or copy this link: ${ackUrl}</p>`,
-  ].join('\n');
-}
-
 // ── Completion email ────────────────────────────────────────────────────────
 
-export function buildCompleteUrl(taskId: string): string {
-  const token = signAckToken(taskId);
+const TWELVE_HOURS = 12 * 60 * 60 * 1000;
+
+/** Signed for this task AND its current owner; expires 12 h after the planned end. */
+export function buildCompleteUrl(taskId: string, ownerId: string, plannedEndTime: Date | null): string {
+  const end = plannedEndTime?.getTime();
+  const exp = end ? Math.max(end + TWELVE_HOURS, Date.now() + TWELVE_HOURS) : undefined;
+  const token = signAckToken(taskId, { kind: 'complete', uid: ownerId, exp });
   return `${config.frontendUrl}/#/complete?task_id=${taskId}&token=${token}`;
 }
 
@@ -92,7 +90,8 @@ function buildCompletionEmailHtml(task: TaskForEmail, completeUrl: string): stri
       ? `<p><strong>Description:</strong> ${escapeHtml(task.description)}</p>`
       : '',
     '<br/>',
-    `<p><a href="${completeUrl}" style="padding:10px 20px;background:#16a34a;color:#fff;text-decoration:none;border-radius:4px;">Complete Task</a></p>`,
+    `<p><a href="${completeUrl}" style="padding:10px 20px;background:#16a34a;color:#fff;text-decoration:none;border-radius:4px;">Mark as completed</a></p>`,
+    `<p style="color:#666;font-size:12px;">Link expires 12 hours after the planned end.</p>`,
     `<p style="color:#666;font-size:12px;">Or copy this link: ${completeUrl}</p>`,
   ].join('\n');
 }
@@ -105,23 +104,24 @@ export interface EmailResult {
 
 // ── Shared send logic ────────────────────────────────────────────────────────
 
-async function sendMailInternal(
+export async function sendMailInternal(
   to: string,
   subject: string,
   html: string,
   logLabel: string,
+  replyTo?: string,
 ): Promise<EmailResult> {
   if (config.microsoft.mailEnabled) {
-    const messageId = await sendEmailViaGraph(to, subject, html);
+    const messageId = await sendEmailViaGraph(to, subject, html, replyTo);
     return { messageId };
   }
 
-  const fromAddress = config.email.fromAddress || `noreply@${config.email.domain}`;
   const info = await transporter.sendMail({
-    from: `"${config.email.fromName}" <${fromAddress}>`,
+    from: `"${config.email.fromName}" <${fromAddress()}>`,
     to,
     subject,
     html,
+    ...(replyTo ? { replyTo } : {}),
   });
 
   const messageId: string = isMock
@@ -138,25 +138,11 @@ async function sendMailInternal(
 
 // ── Public API ──────────────────────────────────────────────────────────────
 
-function resolveRecipient(task: TaskForEmail): string {
-  return (
-    task.assignedUser?.email ||
-    `${task.assignedTeam || config.email.fallbackTeam}@${config.email.domain}`
-  );
-}
-
-export async function sendEmail(task: TaskForEmail): Promise<EmailResult> {
-  const to = resolveRecipient(task);
-  const subject = `[Tilli-go] Task triggered: ${task.taskName}`;
-  const ackUrl = buildAckUrl(task.id);
-  const html = buildTaskEmailHtml(task, ackUrl);
-  return sendMailInternal(to, subject, html, 'EMAIL SENT');
-}
-
-export async function sendCompletionEmail(task: TaskForEmail): Promise<EmailResult> {
-  const to = resolveRecipient(task);
+/** `to` is decided by the caller (the task owner's company address); never guessed here. */
+export async function sendCompletionEmail(task: TaskForEmail, to: string): Promise<EmailResult> {
+  if (!task.assignedUser) throw new Error('Completion email needs an owner');
   const subject = `[Tilli-go] Task ready for completion: ${task.taskName}`;
-  const completeUrl = buildCompleteUrl(task.id);
+  const completeUrl = buildCompleteUrl(task.id, task.assignedUser.id, task.plannedEndTime);
   const html = buildCompletionEmailHtml(task, completeUrl);
   return sendMailInternal(to, subject, html, 'COMPLETION EMAIL SENT');
 }

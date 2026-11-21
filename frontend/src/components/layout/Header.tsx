@@ -6,9 +6,13 @@ import "./header.css";
 
 const pageTitles: Record<string, string> = {
   "/dashboard": "Dashboard",
-  "/tasks": "Task Management",
+  "/tasks": "Cutover Tasks",
   "/projects": "Projects",
   "/profile": "Profile",
+  "/admin": "Admin",
+  "/change-requests": "Change Requests",
+  "/timeline": "Cutover Timeline",
+  "/change-requests/new": "New Change Request",
 };
 
 interface HeaderUser {
@@ -47,7 +51,9 @@ interface HeaderProps {
 
 export default function Header({ onToggleMobile }: HeaderProps) {
   const location = useLocation();
-  const title = pageTitles[location.pathname] || "Tilli-go";
+  const title =
+    pageTitles[location.pathname] ||
+    (location.pathname.startsWith("/change-requests/") ? "Change Request" : "Tilli-go");
   const { projects, selectedProjectId, setSelectedProjectId, projectsLoading } =
     useContext(ProjectContext);
 
@@ -80,6 +86,13 @@ export default function Header({ onToggleMobile }: HeaderProps) {
           <MenuIcon />
         </button>
         <h1 className="dfh-title">{title}</h1>
+        {/* Tasks and Timeline are opened from a change request: link back to it. */}
+        {(location.pathname === "/tasks" || location.pathname === "/timeline") &&
+          projects.find((p) => p.id === selectedProjectId)?.changeRequests?.map((c) => (
+            <Link key={c.id} to={`/change-requests/${c.id}`} className="dfh-back" title={c.title}>
+              ← CR-{c.number}
+            </Link>
+          ))}
       </div>
       <div className="dfh-right">
         <ProjectSelect

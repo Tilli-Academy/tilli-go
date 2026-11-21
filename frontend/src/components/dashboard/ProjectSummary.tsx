@@ -1,9 +1,12 @@
 import { LayersIcon, ListChecksIcon, FlagIcon, CalendarIcon } from "./DashboardIcons";
 import type { Task, TaskProjectRef, Project } from "../../types";
 import type { StatusCounts } from "./statusMeta";
+import { zoneName } from "../../utils/zoneTime";
 
-const formatWhen = (ms: number) =>
-  new Date(ms).toLocaleString(undefined, {
+/** In the project's zone, e.g. "21 Nov, 21:00" */
+const formatWhen = (ms: number, timeZone: string) =>
+  new Date(ms).toLocaleString("en-GB", {
+    timeZone,
     day: "numeric",
     month: "short",
     hour: "2-digit",
@@ -28,13 +31,15 @@ interface ProjectSummaryProps {
   project: Project | TaskProjectRef | null;
   tasks: Task[];
   counts: StatusCounts;
+  timeZone: string;
 }
 
 // Project context + progress, built only from the project record and the
 // same task list the rest of the dashboard uses.
-export default function ProjectSummary({ project, tasks, counts }: ProjectSummaryProps) {
+export default function ProjectSummary({ project, tasks, counts, timeZone }: ProjectSummaryProps) {
   const total = tasks.length;
-  const done = counts.Completed;
+  // N/A tasks are not needed in this cutover, so they count as done.
+  const done = counts.Completed + counts["N/A"];
   const pct = total ? Math.round((done / total) * 100) : 0;
   const plan = plannedWindow(tasks);
   const description = project && "description" in project ? project.description : null;
@@ -69,7 +74,7 @@ export default function ProjectSummary({ project, tasks, counts }: ProjectSummar
         <div className="dfd-stat">
           <span className="dfd-stat-label">
             <FlagIcon />
-            Completed
+            <span title="Completed or N/A">Done</span>
           </span>
           <span className="dfd-stat-value">
             {done}
@@ -95,8 +100,8 @@ export default function ProjectSummary({ project, tasks, counts }: ProjectSummar
               Planned window
             </span>
             <span className="dfd-stat-window">
-              {formatWhen(plan.from)}
-              <span>to {formatWhen(plan.to)}</span>
+              {formatWhen(plan.from, timeZone)}
+              <span>to {formatWhen(plan.to, timeZone)} {zoneName(timeZone)}</span>
             </span>
           </div>
         )}

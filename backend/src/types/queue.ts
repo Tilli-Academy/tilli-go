@@ -27,6 +27,8 @@ export interface TaskJobInput {
 export interface EmailJobPayload {
   taskId: string;
   type: 'triggered' | 'completion';
+  /** Start alert: the owner it is for (one alert per task per owner). */
+  ownerId?: string | null;
 }
 
 // ── Scheduler ───────────────────────────────────────────────────────────────

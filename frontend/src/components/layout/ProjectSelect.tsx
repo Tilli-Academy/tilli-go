@@ -2,6 +2,7 @@ import { useCallback, useEffect, useId, useRef, useState } from "react";
 import type React from "react";
 import { LayersIcon, ChevronDownIcon, CheckIcon } from "../dashboard/DashboardIcons";
 import type { Project } from "../../types";
+import { useNavigate } from "react-router-dom";
 import "./project-select.css";
 
 const CLOSE_MS = 120;
@@ -18,6 +19,7 @@ interface ProjectSelectProps {
 // calls onChange(projectId) only when a different project is chosen, and is
 // disabled while projects load.
 export default function ProjectSelect({ projects, value, onChange, loading }: ProjectSelectProps) {
+  const navigate = useNavigate();
   const [open, setOpen] = useState(false);
   const [closing, setClosing] = useState(false);
   const [active, setActive] = useState(-1);
@@ -217,12 +219,20 @@ export default function ProjectSelect({ projects, value, onChange, loading }: Pr
                 >
                   <span className="dfh-ps-opt-code">{p.code}</span>
                   <span className="df-sr"> — </span>
-                  <span className="dfh-ps-opt-name">{p.name}</span>
+                  <span className="dfh-ps-opt-name" title={p.name}>{p.name}</span>
                   <CheckIcon className="dfh-ps-check" />
                 </li>
               );
             })}
           </ul>
+          <button
+            type="button"
+            className="dfh-ps-manage"
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => { closeList(false); navigate("/projects"); }}
+          >
+            Manage projects
+          </button>
         </div>
       )}
     </div>

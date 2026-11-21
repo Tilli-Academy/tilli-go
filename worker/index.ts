@@ -4,10 +4,23 @@ import prisma from './src/config/prisma';
 import { taskWorker } from './src/queues/taskQueue';
 import { emailWorker } from './src/queues/emailQueue';
 import * as emailProducer from './src/services/emailProducer';
+import connection from './src/config/redis';
+import { MAIL_SETTINGS_KEY, mailSettings } from './src/services/mailSettings';
 import { startHeartbeat } from './src/health';
 
 logger.info('Tilli-go worker started');
 startHeartbeat([taskWorker, emailWorker]);
+// The worker is the one that sends, so it tells the API (via Redis) what it really uses.
+async function publishMailSettings(): Promise<void> {
+  try {
+    await connection.set(MAIL_SETTINGS_KEY, JSON.stringify(mailSettings()));
+  } catch (err: unknown) {
+    logger.error({ err: err instanceof Error ? err.message : String(err) }, 'Could not publish mail settings');
+  }
+}
+void publishMailSettings();
+// Re-publish now and then, in case Redis evicted the key (it uses an LRU policy).
+setInterval(() => void publishMailSettings(), 5 * 60_000).unref();
 logger.info(
   { queues: ['task-queue', 'email-queue'] },
   'Listening for jobs'

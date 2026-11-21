@@ -1,4 +1,5 @@
 import React, { useState, useContext } from 'react';
+import AuthBrand from './AuthBrand';
 import { useNavigate, Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import api, { getErrorMessage, API_BASE_URL } from '../../services/api';
@@ -35,7 +36,7 @@ export default function SignUp() {
       localStorage.setItem('token', res.data.token);
       localStorage.setItem('user', JSON.stringify(res.data.user));
       await refreshProjects();
-      navigate('/dashboard');
+      navigate('/change-requests');
     } catch (err: unknown) {
       setError(getErrorMessage(err));
     } finally {
@@ -45,7 +46,7 @@ export default function SignUp() {
 
   return (
     <motion.div
-      className="flex items-center justify-center min-h-screen bg-surface-alt"
+      className="flex items-center justify-center min-h-screen bg-surface-alt px-4"
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       transition={{ duration: 0.3 }}
@@ -55,8 +56,9 @@ export default function SignUp() {
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.4, delay: 0.1, ease: 'easeOut' }}
-        className="w-full max-w-sm space-y-4 bg-surface p-8 rounded-card shadow-card"
+        className="w-full max-w-sm space-y-4 bg-surface p-8 rounded-card shadow-card overflow-hidden border border-border"
       >
+        <AuthBrand />
         <h2 className="text-xl font-bold text-center text-text-primary">Create Account</h2>
 
         {error && (
@@ -149,7 +151,7 @@ export default function SignUp() {
 
         <p className="text-sm text-center text-text-secondary">
           Already have an account?{' '}
-          <Link to="/login" className="text-primary hover:underline">Sign In</Link>
+          <Link to="/login" className="text-primary font-medium underline underline-offset-2">Sign In</Link>
         </p>
       </motion.form>
     </motion.div>
