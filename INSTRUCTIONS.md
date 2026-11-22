@@ -1,4 +1,4 @@
-# DeployFlow — Setup & Configuration Instructions
+# Tilli-go — Setup & Configuration Instructions
 
 ## Table of Contents
 
@@ -59,7 +59,7 @@ At minimum, set these values in **both** `.env` files:
 
 | Variable         | Description                        | Example                                                       |
 |------------------|------------------------------------|---------------------------------------------------------------|
-| `DATABASE_URL`   | PostgreSQL connection string       | `postgresql://deployflow:deployflow@localhost:5436/deployflow` |
+| `DATABASE_URL`   | PostgreSQL connection string       | `postgresql://tilligo:change-me-in-production@localhost:5436/tilligo` |
 | `REDIS_HOST`     | Redis hostname                     | `localhost`                                                   |
 | `REDIS_PORT`     | Redis port                         | `6381`                                                        |
 | `ACK_TOKEN_SECRET` | HMAC signing key for ack tokens  | Any random string (32+ chars recommended)                     |
@@ -135,11 +135,11 @@ docker compose up --build -d
 ```
 
 This starts five services:
-- **postgres** — PostgreSQL 16 (port 5438 on host)
-- **redis** — Redis 7 with AOF persistence (port 6383 on host)
-- **api** — Express API with auto-migration on startup (port 3003 on host)
+- **postgres** — PostgreSQL 16 (port 5436 on host)
+- **redis** — Redis 7 with AOF persistence (port 6381 on host)
+- **api** — Express API with auto-migration on startup (port 3001 on host)
 - **worker** — BullMQ processor (no exposed port)
-- **frontend** — Nginx serving React build with API proxy (port 3004 on host)
+- **frontend** — Nginx serving React build with API proxy (port 3000 on host)
 
 ### 3. Verify
 
@@ -148,10 +148,10 @@ This starts five services:
 docker compose ps
 
 # Check API health
-curl http://localhost:3003/health
+curl http://localhost:3001/health
 
 # Check frontend
-curl http://localhost:3004/
+curl http://localhost:3000/
 
 # View logs
 docker compose logs -f api
@@ -164,7 +164,7 @@ docker compose logs -f frontend
 ```bash
 # From the host machine (tsx + seed.ts require dev dependencies not in the Docker image)
 cd backend
-DATABASE_URL="postgresql://deployflow:$POSTGRES_PASSWORD@localhost:${POSTGRES_PORT:-5438}/deployflow" npm run db:seed
+DATABASE_URL="postgresql://tilligo:$POSTGRES_PASSWORD@localhost:${POSTGRES_PORT:-5436}/tilligo" npm run db:seed
 # Creates 2 projects (Q3-PROD, PLAT-MIG) with 5 tasks and dependencies
 ```
 
@@ -223,14 +223,14 @@ The frontend Nginx server:
 
 | Variable           | Default       | Description                     |
 |--------------------|---------------|---------------------------------|
-| `POSTGRES_USER`    | `deployflow`  | PostgreSQL username             |
+| `POSTGRES_USER`    | `tilligo`  | PostgreSQL username             |
 | `POSTGRES_PASSWORD`| — (required)  | PostgreSQL password             |
-| `POSTGRES_DB`      | `deployflow`  | PostgreSQL database name        |
-| `POSTGRES_PORT`    | `5438`        | Host-mapped PostgreSQL port     |
-| `REDIS_PORT`       | `6383`        | Host-mapped Redis port          |
-| `API_PORT`         | `3003`        | Host-mapped API port            |
-| `FRONTEND_PORT`    | `3004`        | Host-mapped frontend port       |
-| `FRONTEND_URL`     | `http://localhost:3004` | Used in email links    |
+| `POSTGRES_DB`      | `tilligo`  | PostgreSQL database name        |
+| `POSTGRES_PORT`    | `5436`        | Host-mapped PostgreSQL port     |
+| `REDIS_PORT`       | `6381`        | Host-mapped Redis port          |
+| `API_PORT`         | `3001`        | Host-mapped API port            |
+| `FRONTEND_PORT`    | `3000`        | Host-mapped frontend port       |
+| `FRONTEND_URL`     | `http://localhost:3000` | Used in email links    |
 
 ---
 
@@ -365,13 +365,13 @@ For testing, trigger the scheduler immediately:
 curl -X POST http://localhost:3001/api/scheduler/trigger
 
 # Docker
-curl -X POST http://localhost:3003/api/scheduler/trigger
+curl -X POST http://localhost:3001/api/scheduler/trigger
 ```
 
 ### Check Status
 
 ```bash
-curl http://localhost:3003/api/scheduler/status
+curl http://localhost:3001/api/scheduler/status
 ```
 
 Returns: `{ lastRunAt, lastRunDurationMs, tasksEnqueued, tasksBlocked, tasksUnblocked, errors, running }`
@@ -383,13 +383,13 @@ Returns: `{ lastRunAt, lastRunDurationMs, tasksEnqueued, tasksBlocked, tasksUnbl
 ### Routing
 
 The frontend uses **HashRouter** for compatibility with reverse proxies and VS Code port forwarding. URLs use hash fragments:
-- `http://localhost:3004/#/` — Landing page
-- `http://localhost:3004/#/dashboard` — Dashboard
-- `http://localhost:3004/#/projects` — Projects
-- `http://localhost:3004/#/tasks` — Task Grid
-- `http://localhost:3004/#/login` — Login
-- `http://localhost:3004/#/signup` — Sign Up
-- `http://localhost:3004/#/profile` — Profile
+- `http://localhost:3000/#/` — Landing page
+- `http://localhost:3000/#/dashboard` — Dashboard
+- `http://localhost:3000/#/projects` — Projects
+- `http://localhost:3000/#/tasks` — Task Grid
+- `http://localhost:3000/#/login` — Login
+- `http://localhost:3000/#/signup` — Sign Up
+- `http://localhost:3000/#/profile` — Profile
 
 ### Pages
 
@@ -461,12 +461,12 @@ The frontend uses AG Grid Community (free). No license key is needed. The grid s
 ### Common Issues
 
 **"Cannot connect to database"**
-- Verify PostgreSQL is running: `pg_isready -h localhost -p 5438`
+- Verify PostgreSQL is running: `pg_isready -h localhost -p 5436`
 - Check `DATABASE_URL` matches your PostgreSQL credentials
 - In Docker: ensure `postgres` service is healthy (`docker compose ps`)
 
 **"Cannot connect to Redis"**
-- Verify Redis is running: `redis-cli -h localhost -p 6383 ping`
+- Verify Redis is running: `redis-cli -h localhost -p 6381 ping`
 - Check `REDIS_HOST` and `REDIS_PORT` in `.env`
 
 **"Invalid or expired token" on API calls**
@@ -483,7 +483,7 @@ The frontend uses AG Grid Community (free). No license key is needed. The grid s
 - Tasks need `plannedStartTime` set to a past or current time
 - Task must be in `Pending` status
 - All dependencies must be `Completed`
-- Check scheduler status: `curl http://localhost:3003/api/scheduler/status`
+- Check scheduler status: `curl http://localhost:3001/api/scheduler/status`
 
 **"Cross-project dependencies are not allowed"**
 - Dependencies can only be set between tasks in the same project
@@ -506,12 +506,12 @@ The frontend uses AG Grid Community (free). No license key is needed. The grid s
 - If Prisma fails: check that `binaryTargets` includes `linux-musl-openssl-3.0.x` in `schema.prisma`
 
 **Port conflicts**
-- Default Docker ports: Frontend=3004, API=3003, PostgreSQL=5438, Redis=6383
+- Default Docker ports: Frontend=3000, API=3001, PostgreSQL=5436, Redis=6381
 - Change via `docker/.env` variables (`FRONTEND_PORT`, `API_PORT`, `POSTGRES_PORT`, `REDIS_PORT`)
 
 **Blank page in VS Code port forwarding**
 - The frontend uses HashRouter specifically for VS Code proxy compatibility
-- Ensure you access via the forwarded URL (e.g., `https://host:port/proxy/3004/`)
+- Ensure you access via the forwarded URL (e.g., `https://host:port/proxy/3000/`)
 - Hard refresh (Ctrl+Shift+R) after rebuilds to clear cached assets
 
 **PostgreSQL auth failure after port/password change**

@@ -13,3 +13,6 @@ snapshots/
 # The worker generates its Prisma client from backend/prisma (worker/scripts/prisma-generate.mjs);
 # never commit a copy of the schema here.
 worker/prisma/
+
+# Written by the Playwright global setup on every run (holds a login session).
+testing/e2e/.auth-state.json

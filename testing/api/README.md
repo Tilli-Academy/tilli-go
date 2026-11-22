@@ -1,10 +1,10 @@
-# DeployFlow — Postman API Tests
+# Tilli-go — Postman API Tests
 
-API test collection for DeployFlow with 8 test folders and ~40 requests.
+API test collection for Tilli-go with 8 test folders and ~40 requests.
 
 ## Prerequisites
 
-- DeployFlow backend running (local dev or Docker)
+- Tilli-go backend running (local dev or Docker)
 - [Newman CLI](https://www.npmjs.com/package/newman) for command-line execution (optional)
 - [Postman desktop app](https://www.postman.com/downloads/) for GUI execution (optional)
 
@@ -38,7 +38,7 @@ newman run collections/DeployFlow.postman_collection.json \
   --delay-request 100
 ```
 
-### Docker (API on :3003)
+### Docker (API on :3001)
 
 ```bash
 newman run collections/DeployFlow.postman_collection.json \

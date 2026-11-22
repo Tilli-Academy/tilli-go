@@ -1,4 +1,4 @@
-# DeployFlow
+# Tilli-go
 
 A production-grade deployment task orchestration and automation system. Replaces Excel-based deployment tracking with a scalable, event-driven platform featuring multi-project support, an Excel-like UI, automated scheduling, email notifications, and task dependency management.
 
@@ -20,11 +20,11 @@ PostgreSQL ---- Redis
 
 | Service      | Role                                             | Port (Docker) |
 |--------------|--------------------------------------------------|---------------|
-| **frontend** | React SPA served by Nginx, proxies /api to API   | 3004          |
-| **api**      | REST API, scheduler, business logic               | 3003          |
+| **frontend** | React SPA served by Nginx, proxies /api to API   | 3000          |
+| **api**      | REST API, scheduler, business logic               | 3001          |
 | **worker**   | BullMQ job processor (task transitions + emails)  | --            |
-| **postgres** | Primary database (source of truth)                | 5438          |
-| **redis**    | Job queues, rate limiting, caching                | 6383          |
+| **postgres** | Primary database (source of truth)                | 5436          |
+| **redis**    | Job queues, rate limiting, caching                | 6381          |
 
 ## Tech Stack
 
@@ -47,7 +47,7 @@ PostgreSQL ---- Redis
 
 ```bash
 # 1. Clone and install
-git clone <repo-url> && cd DeployFlow
+git clone <repo-url> && cd tilli-go
 cd backend && npm install && cd ..
 cd worker && npm install && cd ..
 cd frontend && npm install && cd ..
@@ -80,8 +80,8 @@ docker compose up --build -d
 ```
 
 Services will be available at:
-- **Frontend:** http://localhost:3004 (Nginx with API proxy)
-- **API:** http://localhost:3003
+- **Frontend:** http://localhost:3000 (Nginx with API proxy)
+- **API:** http://localhost:3001
 
 See [INSTRUCTIONS.md](INSTRUCTIONS.md) for detailed setup and configuration.
 
@@ -218,7 +218,7 @@ Pending ──→ Triggered ──→ Acknowledged ──→ Completed
 ## Project Structure
 
 ```
-DeployFlow/
+tilli-go/
 ├── backend/                # Express API + Scheduler
 │   ├── prisma/             # Schema, migrations, seed
 │   └── src/
