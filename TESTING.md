@@ -1,4 +1,4 @@
-# DeployFlow — Testing Guide
+# Tilli-go — Testing Guide
 
 ## Table of Contents
 
@@ -37,7 +37,7 @@ Set the API base URL depending on your setup:
 API=http://localhost:3001
 
 # Docker
-API=http://localhost:3003
+API=http://localhost:3001
 ```
 
 Register a test user and export the token:
@@ -543,7 +543,7 @@ The `/acknowledge` endpoint requires a signed token from the email. For manual t
 ```bash
 # 1. Check worker logs for the acknowledgement URL after triggering a task
 # The URL looks like:
-#   http://localhost:3004/#/acknowledge?task_id=<UUID>&token=<SIGNED_TOKEN>
+#   http://localhost:3000/#/acknowledge?task_id=<UUID>&token=<SIGNED_TOKEN>
 
 # 2. Extract the task_id and token from the URL and call:
 curl -s "$API/api/acknowledge?task_id=<TASK_ID>&token=<TOKEN>" | jq
@@ -586,7 +586,7 @@ done
 
 ### Login Flow
 
-1. Navigate to http://localhost:3004 (Docker) or http://localhost:3000 (local)
+1. Navigate to http://localhost:3000 (Docker) or http://localhost:3000 (local)
 2. Landing page displays with "Get Started" and "Login" buttons
 3. Click "Get Started" → navigates to `/#/signup`
 4. Register a new account → redirects to `/#/dashboard`
@@ -686,7 +686,7 @@ done
 ### Acknowledge Page
 
 1. When a task is triggered, the worker sends an email with an acknowledgement link
-2. The link opens `http://localhost:3004/#/acknowledge?task_id=...&token=...`
+2. The link opens `http://localhost:3000/#/acknowledge?task_id=...&token=...`
 3. The page should show a success or error card
 4. No login is required (public page, protected by signed token)
 
@@ -767,7 +767,7 @@ docker compose ps
 ### Test API Through Docker
 
 ```bash
-curl http://localhost:3003/health
+curl http://localhost:3001/health
 # Expected: {"status":"ok"}
 ```
 
@@ -775,15 +775,15 @@ curl http://localhost:3003/health
 
 ```bash
 # HTML page
-curl -s -o /dev/null -w "%{http_code}" http://localhost:3004/
+curl -s -o /dev/null -w "%{http_code}" http://localhost:3000/
 # Expected: 200
 
 # Static assets (gzip compressed)
-curl -s -o /dev/null -w "%{http_code}" -H "Accept-Encoding: gzip" http://localhost:3004/static/js/main.*.js
+curl -s -o /dev/null -w "%{http_code}" -H "Accept-Encoding: gzip" http://localhost:3000/static/js/main.*.js
 # Expected: 200
 
 # API proxy
-curl -s http://localhost:3004/api/auth/login \
+curl -s http://localhost:3000/api/auth/login \
   -H "Content-Type: application/json" \
   -d '{"email":"test@example.com","password":"password123"}'
 # Expected: JWT token response
@@ -794,7 +794,7 @@ curl -s http://localhost:3004/api/auth/login \
 ```bash
 # From the host machine (tsx + seed.ts require dev dependencies not in the Docker image)
 cd backend
-DATABASE_URL="postgresql://deployflow:$POSTGRES_PASSWORD@localhost:${POSTGRES_PORT:-5438}/deployflow" npm run db:seed
+DATABASE_URL="postgresql://tilligo:$POSTGRES_PASSWORD@localhost:${POSTGRES_PORT:-5436}/tilligo" npm run db:seed
 # Expected: "Seeded 2 projects with 5 tasks and dependencies"
 ```
 
@@ -825,7 +825,7 @@ docker compose logs -f worker &
 docker compose restart api worker
 
 # Tasks should still be there after restart
-curl -s "http://localhost:3003/api/tasks?projectId=$PROJECT_ID" -H "$AUTH" | jq length
+curl -s "http://localhost:3001/api/tasks?projectId=$PROJECT_ID" -H "$AUTH" | jq length
 ```
 
 ### Cleanup

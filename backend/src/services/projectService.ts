@@ -13,7 +13,8 @@ export async function list(filters: ProjectFilterParams = {}): Promise<Paginated
     prisma.project.findMany({
       // Linked change requests, so the UI can group cutover plans under their CR.
       include: { changeRequests: { select: { id: true, number: true, title: true }, orderBy: { number: 'asc' } } },
-      orderBy: { createdAt: 'asc' },
+      // id breaks ties (projects created in the same millisecond), so paging never skips or repeats one.
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
       skip,
       take: limit,
     }),

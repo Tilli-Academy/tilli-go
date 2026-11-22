@@ -1,7 +1,7 @@
-# DeployFlow — AI Agent Instructions
+# Tilli-go — AI Agent Instructions
 
 ## Project Overview
-DeployFlow is a deployment task orchestration system replacing Excel-based tracking with an automated, event-driven platform. Multi-project task management, AG Grid editing, dashboard with pie chart, scheduling, email notifications, audit trail, Docker deployment.
+Tilli-go is a deployment task orchestration system replacing Excel-based tracking with an automated, event-driven platform. Multi-project task management, AG Grid editing, dashboard with pie chart, scheduling, email notifications, audit trail, Docker deployment.
 
 ## Architecture
 ```
@@ -98,14 +98,17 @@ Scheduler runs in API process every 60s. Phase 1: unblock Blocked→Pending. Pha
 ## Docker
 | Service | Port (Host) | Health Check |
 |---|---|---|
-| postgres (16-alpine) | 5438 | pg_isready 5s |
-| redis (7-alpine) | 6383 | redis-cli ping 5s |
-| api (Node 20 + tini) | 3003 | wget /health 10s |
-| worker (Node 20 + tini) | — | — |
-| frontend (Nginx Alpine) | 3004 | — |
+| postgres (16-alpine) | 5436 | pg_isready 5s |
+| redis (7-alpine) | 6381 | redis-cli ping 5s |
+| api (Node 20 + tini) | 3001 | wget /health 10s |
+| worker (Node 20 + tini) | — | heartbeat file fresher than 1 min (`worker/src/health.ts`) |
+| frontend (Nginx Alpine) | 3000 | — |
+| mailpit (`--profile mail`, optional) | 8025 | local inbox for testing email |
 
 Startup: postgres+redis (healthy) → api (healthy) → frontend; postgres+redis → worker.
-Nginx: SPA `try_files`, `/api/` proxy to `http://api:3001/api/`, gzip enabled.
+Nginx: SPA `try_files`, `/api/` proxied to the `api` service, re-resolved through Docker DNS (`resolver 127.0.0.11`) so recreating the API doesn't leave the UI on 502; gzip enabled.
+Email: the worker only sends real mail when both `SMTP_HOST` and `SMTP_USER` are set; otherwise it logs a mock. For Mailpit use `SMTP_HOST=mailpit SMTP_PORT=1025 SMTP_USER=any SMTP_PASS=any`.
+Demo data: `docker compose exec api npm run db:seed:cr:built` (demo admin `vikram@example.com` / `Demo@12345`). `DEMO_TOOLS=true` enables the live-rehearsal button on the Timeline.
 Build args: `REACT_APP_API_URL=./api`, `PUBLIC_URL=.` (proxy compatibility).
 Prisma binary targets include `linux-musl-openssl-3.0.x` for Alpine.
 
@@ -120,7 +123,7 @@ Prisma binary targets include `linux-musl-openssl-3.0.x` for Alpine.
 ## Development Commands
 ```bash
 # Local dev
-cd backend && npm run dev          # API on :3002
+cd backend && npm run dev          # API on :3001
 cd worker && npm run dev           # Worker (generates its Prisma client from backend/prisma first)
 cd frontend && npm start           # Frontend on :3000
 cd backend && npx prisma studio    # DB browser on :5555
@@ -132,13 +135,13 @@ docker compose logs -f api                   # View logs
 docker compose down -v                       # Stop + remove data
 
 # Prisma Studio against Docker DB
-DATABASE_URL="postgresql://deployflow:change-me-in-production@localhost:5438/deployflow" npx prisma studio
+DATABASE_URL="postgresql://tilligo:change-me-in-production@localhost:5436/tilligo" npx prisma studio
 ```
 
 ## Environment Variables
 **Required:** `DATABASE_URL`, `JWT_SECRET`, `ACK_TOKEN_SECRET`
-**Optional:** `REDIS_HOST` (localhost), `REDIS_PORT` (6379), `API_PORT` (3001), `FRONTEND_URL` (http://localhost:3004), `SMTP_HOST/PORT/USER/PASS` (mock if blank), `EMAIL_DOMAIN` (tilli.pro), `EMAIL_FROM_ADDRESS`, `EMAIL_FROM_NAME` (Tilli-go), `ACK_TOKEN_EXPIRY_MS` (7 days)
-**Docker-only:** `POSTGRES_PORT` (5438), `REDIS_PORT` (6383), `API_PORT` (3003), `FRONTEND_PORT` (3004)
+**Optional:** `REDIS_HOST` (localhost), `REDIS_PORT` (6379), `API_PORT` (3001), `FRONTEND_URL` (http://localhost:3000), `SMTP_HOST/PORT/USER/PASS` (mock if blank), `EMAIL_DOMAIN` (tilli.pro), `EMAIL_FROM_ADDRESS`, `EMAIL_FROM_NAME` (Tilli-go), `ACK_TOKEN_EXPIRY_MS` (7 days)
+**Docker-only:** `POSTGRES_PORT` (5436), `REDIS_PORT` (6381), `API_PORT` (3001), `FRONTEND_PORT` (3000)
 
 ## Migrations
 | Migration | Description |

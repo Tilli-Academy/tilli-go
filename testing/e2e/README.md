@@ -1,11 +1,11 @@
 # Tilli-go — Playwright E2E Tests
 
-End-to-end browser tests for DeployFlow using Playwright.
+End-to-end browser tests for Tilli-go using Playwright.
 
 ## Prerequisites
 
 - Node.js 18+
-- DeployFlow frontend and backend running (local dev or Docker)
+- Tilli-go frontend and backend running (local dev or Docker)
 
 ## Setup
 
@@ -30,7 +30,7 @@ export E2E_ADMIN_EMAIL=<admin email> E2E_ADMIN_PASSWORD=<password>
 TEST_ENV=local npx playwright test
 ```
 
-### Against Docker (frontend :3004, API :3003)
+### Against Docker (frontend :3000, API :3001)
 
 ```bash
 TEST_ENV=docker npx playwright test
@@ -98,7 +98,7 @@ src/
 ## Environment Files
 
 - `.env.local` — `BASE_URL=http://localhost:3000`, `API_URL=http://localhost:3001`
-- `.env.docker` — `BASE_URL=http://localhost:3004`, `API_URL=http://localhost:3003`
+- `.env.docker` — `BASE_URL=http://localhost:3000`, `API_URL=http://localhost:3001`
 
 Set `TEST_ENV=local` or `TEST_ENV=docker` to select the environment.
 

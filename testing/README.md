@@ -1,12 +1,12 @@
-# DeployFlow — Testing
+# Tilli-go — Testing
 
-Automated test suites for DeployFlow: API tests (Postman/Newman) and E2E browser tests (Playwright).
+Automated test suites for Tilli-go: API tests (Postman/Newman) and E2E browser tests (Playwright).
 
 ## Quick Start
 
 ### Prerequisites
 
-- DeployFlow running (local dev or Docker)
+- Tilli-go running (local dev or Docker)
 - Node.js 18+
 
 ### API Tests (Postman/Newman)
@@ -20,7 +20,7 @@ newman run testing/api/collections/DeployFlow.postman_collection.json \
   -e testing/api/environments/local.postman_environment.json \
   --delay-request 100
 
-# Run against Docker (API on :3003)
+# Run against Docker (API on :3001)
 newman run testing/api/collections/DeployFlow.postman_collection.json \
   -e testing/api/environments/docker.postman_environment.json \
   --delay-request 100
@@ -107,4 +107,4 @@ testing/
 | Environment | API URL | Frontend URL |
 |-------------|---------|-------------|
 | Local Dev | http://localhost:3001 | http://localhost:3000 |
-| Docker | http://localhost:3003 | http://localhost:3004 |
+| Docker | http://localhost:3001 | http://localhost:3000 |
